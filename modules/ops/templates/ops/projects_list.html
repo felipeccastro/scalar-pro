@@ -1,0 +1,88 @@
+%rebase('layout', title='Projects', back_url=url_for('dashboard'))
+<div class="page-header">
+  <h1>Projects</h1>
+  <button type="button" class="btn btn-primary" commandfor="new-project-dialog" command="show-modal">+ New project</button>
+</div>
+
+<form method="get" action="{{url_for('projects_list')}}" class="search-form">
+  <input type="search" name="q" value="{{q}}" placeholder="Search projects…">
+  <button class="btn" type="submit">Search</button>
+  %if q:
+    <a class="btn-link" href="{{url_for('projects_list')}}">Clear</a>
+  %end
+</form>
+
+<dialog id="new-project-dialog">
+  <div class="dialog-head">
+    <span class="dialog-title">New project</span>
+    <button type="button" class="dialog-close" commandfor="new-project-dialog" command="close" aria-label="Close">✕</button>
+  </div>
+  <form method="post" action="{{url_for('projects_create')}}">
+    <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
+    <div class="dialog-body inline-form">
+      <input type="text" name="name" placeholder="Name" required autofocus>
+      <select name="status">
+        %for s in statuses:
+          <option value="{{s}}">{{status_label(s)}}</option>
+        %end
+      </select>
+      <select name="owner_id">
+        <option value="">No owner</option>
+        %for p in people:
+          <option value="{{p.id}}">{{p.name}}</option>
+        %end
+      </select>
+      <select name="customer_id">
+        <option value="">No customer</option>
+        %for c in clients:
+          <option value="{{c.id}}">{{c.name}}</option>
+        %end
+      </select>
+      <input type="date" name="due_date" aria-label="Due date">
+      <textarea name="description" placeholder="What is this project?"></textarea>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn" commandfor="new-project-dialog" command="close">Cancel</button>
+      <button class="btn btn-primary" type="submit">Add project</button>
+    </div>
+  </form>
+</dialog>
+
+<table class="data-table">
+  <thead>
+    <tr><th>Project</th><th>Owner</th><th>Due</th><th>Work left</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    %for p in projects:
+      %prog = progress[p.id]
+      <tr onclick="location.href='{{url_for('project_detail', project_id=p.id)}}'">
+        <td>
+          {{p.name}}
+          %if p.customer_id:
+            <span class="muted">· {{p.customer.name}}</span>
+          %end
+        </td>
+        <td class="muted">{{p.owner.name if p.owner_id else 'Nobody'}}</td>
+        <td class="nowrap {{'' if not p.due_date or p.due_date >= insights.today() else 'muted'}}">
+          {{insights.due_phrase(p.due_date).replace('due ', '').replace('was ', '')}}
+        </td>
+        <td>
+          %if prog['open']:
+            {{prog['open']}} of {{prog['total']}}
+            %if prog['overdue']:
+              <span class="badge badge-overdue"><i class="dot"></i>{{prog['overdue']}} overdue</span>
+            %end
+          %elif prog['total']:
+            <span class="muted">All done</span>
+          %else:
+            <span class="muted">No tasks</span>
+          %end
+        </td>
+        <td><span class="badge badge-{{p.status}}"><i class="dot"></i>{{status_label(p.status)}}</span></td>
+      </tr>
+    %end
+    %if not projects:
+      <tr><td colspan="5" class="muted">No projects yet.</td></tr>
+    %end
+  </tbody>
+</table>

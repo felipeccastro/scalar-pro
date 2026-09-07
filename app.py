@@ -238,6 +238,13 @@ def _server_error(_error: HTTPError):
 # budget). Must be imported after `app`/`render`/hooks exist above.
 import pages  # noqa: E402,F401
 
+# Pro's feature modules (dashboard, crm, ops, capture) follow the same
+# decorate-on-import pattern; register() adds each one's templates/ to the
+# lookup path and imports its pages. See modules/__init__.py.
+import modules  # noqa: E402
+
+modules.register(_bottle_module.TEMPLATE_PATH)
+
 
 if __name__ == "__main__":
     run(

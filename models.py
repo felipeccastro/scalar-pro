@@ -1,10 +1,16 @@
-"""Peewee models for the template app.
+"""Peewee models for Binders Pro.
 
 Single-tenant: there is no Workspace concept at all — one instance == one
 customer. Schema changes ship as idempotent "does this column exist yet"
 checks run from ensure_schema() at startup (see the bottom of this file) —
 there is no migrations/ directory and no peewee-migrate dependency, per the
 zero-pip-dependency constraint (peewee + bottle only).
+
+Pro keeps Core's whole model set unchanged and adds the seven records a
+company actually runs on: Person, Project, Opportunity, Commitment, Decision,
+Note and NoteLink. Every dashboard in this app is a query over those plus
+Client/Task — nothing is precomputed and no "is_overdue" flag is stored, so a
+demo seeded three months ago still reads correctly today (see insights.py).
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from peewee import (
     BooleanField,
     CharField,
     DatabaseProxy,
+    DateField,
     DateTimeField,
     FloatField,
     ForeignKeyField,
@@ -121,13 +128,63 @@ class Client(BaseModel):
         indexes = ((("status",), False),)
 
 
+class Person(BaseModel):
+    """The people directory — who can own work.
+
+    Deliberately NOT the same thing as User. A User is an account (email +
+    password + session); a Person is a name you can hand a commitment to.
+    Most are the same human and get linked via `user`, but the split is what
+    lets the demo seed eight colleagues without eight fake logins, and what
+    lets a contact at a customer be named as the person who promised
+    something without giving them access to the app."""
+
+    id = AutoField()
+    name = CharField()
+    role = CharField(default="")  # freeform job title, e.g. "Head of Sales"
+    email = CharField(default="")
+    active = BooleanField(default=True)
+    user = ForeignKeyField(User, backref="person", null=True, on_delete="SET NULL")
+    created_at = DateTimeField(default=datetime.datetime.now)
+
+
+class Project(BaseModel):
+    id = AutoField()
+    name = CharField()
+    description = TextField(default="")  # plain text — rendered with white-space: pre-wrap
+    status = CharField(default="planning")  # planning | active | at_risk | blocked | done
+    owner = ForeignKeyField(Person, backref="owned_projects", null=True, on_delete="SET NULL")
+    customer = ForeignKeyField(Client, backref="projects", null=True, on_delete="SET NULL")
+    due_date = DateField(null=True)
+    # Bumped on every write (see touch()). "Stalled" is `now - last_activity_at`
+    # rather than a stored flag, so it stays true without a nightly job.
+    last_activity_at = DateTimeField(default=datetime.datetime.now)
+    created_by = ForeignKeyField(User, backref="created_projects", null=True, on_delete="SET NULL")
+    created_at = DateTimeField(default=datetime.datetime.now)
+    updated_at = DateTimeField(default=datetime.datetime.now)
+    archived_at = DateTimeField(null=True)
+
+    class Meta:
+        database = db
+        indexes = ((("status",), False),)
+
+
 class Task(BaseModel):
     id = AutoField()
     title = CharField()
     description = TextField(default="")  # plain text — rendered with white-space: pre-wrap
     status = CharField(default="todo")  # todo | in_progress | done
+    # Two owner columns on purpose. `owner` (a Person) is what Pro's forms and
+    # dashboards use — it's the one that can point at someone without an
+    # account. `assignee` (a User) is Core's, and it's what the notification
+    # path keys off; task_update keeps it in sync from owner.user so
+    # reassignment notifications still fire. Don't collapse them without also
+    # reworking notify() and the Core-compatible AI write tools.
+    owner = ForeignKeyField(Person, backref="owned_tasks", null=True, on_delete="SET NULL")
     assignee = ForeignKeyField(User, backref="assigned_tasks", null=True, on_delete="SET NULL")
     client = ForeignKeyField(Client, backref="tasks", null=True, on_delete="SET NULL")
+    project = ForeignKeyField(Project, backref="tasks", null=True, on_delete="SET NULL")
+    due_date = DateField(null=True)
+    priority = CharField(default="normal")  # low | normal | high | urgent
     position = IntegerField(default=0)
     created_by = ForeignKeyField(User, backref="created_tasks", null=True, on_delete="SET NULL")
     created_at = DateTimeField(default=datetime.datetime.now)
@@ -139,6 +196,120 @@ class Task(BaseModel):
         indexes = (
             (("status", "position"), False),
             (("client",), False),
+            (("due_date",), False),
+        )
+
+
+class Opportunity(BaseModel):
+    """A deal in the pipeline. `value` is whole currency units (no cents) —
+    this is a sales pipeline, not an invoicing ledger, and rounding to the
+    dollar keeps the seed data and the extracted "$50k" readable."""
+
+    id = AutoField()
+    title = CharField()
+    customer = ForeignKeyField(Client, backref="opportunities", null=True, on_delete="SET NULL")
+    value = IntegerField(default=0)
+    stage = CharField(default="lead")  # lead | qualified | proposal | negotiation | won | lost
+    owner = ForeignKeyField(Person, backref="owned_opportunities", null=True, on_delete="SET NULL")
+    next_action = CharField(default="")
+    next_action_due = DateField(null=True)
+    notes = TextField(default="")  # plain text — rendered with white-space: pre-wrap
+    last_activity_at = DateTimeField(default=datetime.datetime.now)
+    created_by = ForeignKeyField(User, backref="created_opportunities", null=True, on_delete="SET NULL")
+    created_at = DateTimeField(default=datetime.datetime.now)
+    updated_at = DateTimeField(default=datetime.datetime.now)
+    archived_at = DateTimeField(null=True)
+
+    class Meta:
+        database = db
+        indexes = ((("stage",), False),)
+
+
+class Commitment(BaseModel):
+    """Someone said they'd do a thing. A task with a promise attached.
+
+    Note what's missing: an "overdue" status. The spec lists one, but storing
+    it would mean a nightly job and a demo that rots. Overdue is
+    `due_date < today and status == "open"`, computed at read time in
+    insights.py."""
+
+    id = AutoField()
+    description = TextField()
+    person = ForeignKeyField(Person, backref="commitments", null=True, on_delete="SET NULL")
+    due_date = DateField(null=True)
+    status = CharField(default="open")  # open | done | cancelled
+    source = CharField(default="manual")  # manual | meeting | email | capture
+    customer = ForeignKeyField(Client, backref="commitments", null=True, on_delete="SET NULL")
+    project = ForeignKeyField(Project, backref="commitments", null=True, on_delete="SET NULL")
+    created_by = ForeignKeyField(User, backref="created_commitments", null=True, on_delete="SET NULL")
+    created_at = DateTimeField(default=datetime.datetime.now)
+    updated_at = DateTimeField(default=datetime.datetime.now)
+
+    class Meta:
+        database = db
+        indexes = (
+            (("status", "due_date"), False),
+            (("person",), False),
+        )
+
+
+class Decision(BaseModel):
+    """What we decided, and why. `rationale` is the reason the whole model
+    exists — a decision without its "why" is just a status change."""
+
+    id = AutoField()
+    title = CharField()
+    decision = TextField(default="")
+    rationale = TextField(default="")
+    owner = ForeignKeyField(Person, backref="owned_decisions", null=True, on_delete="SET NULL")
+    decided_on = DateField(null=True)
+    review_on = DateField(null=True)
+    status = CharField(default="decided")  # decided | under_review | superseded
+    customer = ForeignKeyField(Client, backref="decisions", null=True, on_delete="SET NULL")
+    project = ForeignKeyField(Project, backref="decisions", null=True, on_delete="SET NULL")
+    created_by = ForeignKeyField(User, backref="created_decisions", null=True, on_delete="SET NULL")
+    created_at = DateTimeField(default=datetime.datetime.now)
+    updated_at = DateTimeField(default=datetime.datetime.now)
+
+
+class Note(BaseModel):
+    """The raw text layer, and the thing Capture writes first.
+
+    Structured records don't replace the text they came from — the note is
+    kept verbatim and every record extracted from it points back here via
+    NoteLink. `proposal_json` holds the extraction awaiting review, which is
+    why a half-finished Capture survives a page refresh: the draft lives on
+    the row, not in the session."""
+
+    id = AutoField()
+    title = CharField(default="")
+    body = TextField()
+    author = ForeignKeyField(Person, backref="notes", null=True, on_delete="SET NULL")
+    occurred_on = DateField(null=True)
+    tags = CharField(default="")  # comma-separated, freeform
+    proposal_json = TextField(default="")  # AI extraction awaiting review; "" once resolved
+    captured = BooleanField(default=False)  # True once its proposal has been accepted or discarded
+    created_by = ForeignKeyField(User, backref="created_notes", null=True, on_delete="SET NULL")
+    created_at = DateTimeField(default=datetime.datetime.now)
+    updated_at = DateTimeField(default=datetime.datetime.now)
+
+
+class NoteLink(BaseModel):
+    """Which records came out of which note. Generic over subject the same way
+    Comment/Attachment/Activity are (subject_type + subject_id), so linking a
+    new record type needs no schema change at all."""
+
+    id = AutoField()
+    note = ForeignKeyField(Note, backref="links", on_delete="CASCADE")
+    subject_type = CharField()
+    subject_id = IntegerField()
+    created_at = DateTimeField(default=datetime.datetime.now)
+
+    class Meta:
+        database = db
+        indexes = (
+            (("note",), False),
+            (("subject_type", "subject_id"), False),
         )
 
 
@@ -148,17 +319,29 @@ class Task(BaseModel):
 # table per model — one implementation instead of two).
 # ---------------------------------------------------------------------------
 
-SUBJECT_TYPES = ("client", "task")
+SUBJECT_TYPES = (
+    "client", "task", "person", "project",
+    "opportunity", "commitment", "decision", "note",
+)
 
 # Shared with pages.py (form choices) and ai.py (tool-schema enums / write-tool
 # validation) — defined once here so ai.py can import them without importing
 # pages.py back (pages.py does `import ai`, so that direction would cycle).
 CLIENT_STATUSES = ("lead", "active", "inactive")
 TASK_STATUSES = ("todo", "in_progress", "done")
+PROJECT_STATUSES = ("planning", "active", "at_risk", "blocked", "done")
+OPPORTUNITY_STAGES = ("lead", "qualified", "proposal", "negotiation", "won", "lost")
+# Stages a deal can still move out of — everything the pipeline total, the
+# stalled check and the "open opportunities" count care about.
+OPPORTUNITY_OPEN_STAGES = ("lead", "qualified", "proposal", "negotiation")
+COMMITMENT_STATUSES = ("open", "done", "cancelled")
+DECISION_STATUSES = ("decided", "under_review", "superseded")
+TASK_PRIORITIES = ("low", "normal", "high", "urgent")
 
 _STATUS_LABELS = {
     "lead": "Lead", "active": "Active", "inactive": "Inactive",
     "todo": "To Do", "in_progress": "In Progress", "done": "Done",
+    "at_risk": "At Risk", "under_review": "Under Review",
 }
 
 
@@ -267,7 +450,14 @@ ALL_MODELS = [
     Invite,
     PasswordReset,
     Client,
+    Person,
+    Project,
     Task,
+    Opportunity,
+    Commitment,
+    Decision,
+    Note,
+    NoteLink,
     Comment,
     Attachment,
     Activity,
@@ -275,35 +465,6 @@ ALL_MODELS = [
     ChatThread,
     ChatMessage,
 ]
-
-
-def seed_demo_data(owner: User) -> None:
-    """A couple of realistic Clients/Tasks so a freshly-provisioned instance
-    isn't an empty screen. Called once, right after the first owner registers
-    (see pages.py:register_owner_submit) — not from ensure_schema(), since it
-    needs a real User to attribute the rows to."""
-    acme = Client.create(
-        name="Acme Corp", email="hello@acme.example", company="Acme Corp",
-        status="active", notes="Long-time client, monthly retainer.",
-        created_by=owner,
-    )
-    northwind = Client.create(
-        name="Northwind Traders", email="hi@northwind.example", company="Northwind Traders",
-        status="lead", notes="Introduced last week, still evaluating.",
-        created_by=owner,
-    )
-    Task.create(
-        title="Send onboarding email", status="done",
-        client=acme, assignee=owner, position=0, created_by=owner,
-    )
-    Task.create(
-        title="Prepare proposal", description="Cover scope, timeline, and pricing.",
-        status="in_progress", client=northwind, assignee=owner, position=1, created_by=owner,
-    )
-    Task.create(
-        title="Quarterly check-in call", status="todo",
-        client=acme, assignee=owner, position=2, created_by=owner,
-    )
 
 
 def _column_exists(table: str, column: str) -> bool:
@@ -328,3 +489,10 @@ def ensure_schema() -> None:
     _add_column_if_missing("chatthread", "pending_tool_calls", "TEXT")
     _add_column_if_missing("chatthread", "pending_convo", "TEXT")
     _add_column_if_missing("chatthread", "pending_round_idx", "INTEGER")
+    # Pro's additions to Core's task table. Plain ALTERs with no FK constraint:
+    # SQLite can't add a REFERENCES column to an existing table, and peewee
+    # resolves these through the model definition anyway.
+    _add_column_if_missing("task", "owner_id", "INTEGER")
+    _add_column_if_missing("task", "project_id", "INTEGER")
+    _add_column_if_missing("task", "due_date", "DATE")
+    _add_column_if_missing("task", "priority", "VARCHAR(255) DEFAULT 'normal'")

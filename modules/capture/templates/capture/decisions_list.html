@@ -1,0 +1,50 @@
+%rebase('layout', title='Decisions', back_url=url_for('dashboard'))
+<div class="page-header">
+  <h1>Decisions</h1>
+</div>
+
+<form method="get" action="{{url_for('decisions_list')}}" class="search-form">
+  <input type="search" name="q" value="{{q}}" placeholder="Search decisions…">
+  <button class="btn" type="submit">Search</button>
+  %if q:
+    <a class="btn-link" href="{{url_for('decisions_list')}}">Clear</a>
+  %end
+</form>
+
+%# Each decision shows what and why, not just what. A log of outcomes with no
+%# reasoning is a changelog; the reasoning is the part you come back for.
+%for d in decisions:
+  <article class="decision">
+    <div class="decision-head">
+      <h3 class="decision-title">{{d.title}}</h3>
+      <span class="badge badge-{{d.status}}"><i class="dot"></i>{{status_label(d.status)}}</span>
+      %if d.id in review_soon:
+        <span class="badge badge-overdue"><i class="dot"></i>Due for review</span>
+      %end
+    </div>
+    %if d.decision:
+      <p class="decision-what">{{d.decision}}</p>
+    %end
+    %if d.rationale:
+      <p class="decision-why">{{d.rationale}}</p>
+    %end
+    <div class="decision-meta">
+      {{d.owner.name if d.owner_id else 'Unattributed'}}
+      %if d.decided_on:
+        &middot; decided {{d.decided_on.strftime('%b %-d, %Y')}}
+      %end
+      %if d.review_on:
+        &middot; review {{d.review_on.strftime('%b %-d, %Y')}}
+      %end
+      %if d.project_id:
+        &middot; {{d.project.name}}
+      %end
+      %if d.customer_id:
+        &middot; {{d.customer.name}}
+      %end
+    </div>
+  </article>
+%end
+%if not decisions:
+  <p class="muted">No decisions recorded yet. Capture a note that contains one, or add it by hand.</p>
+%end

@@ -1,0 +1,60 @@
+%rebase('layout', title='People', back_url=url_for('dashboard'))
+<div class="page-header">
+  <h1>People</h1>
+  <button type="button" class="btn btn-primary" commandfor="new-person-dialog" command="show-modal">+ New person</button>
+</div>
+
+<dialog id="new-person-dialog">
+  <div class="dialog-head">
+    <span class="dialog-title">New person</span>
+    <button type="button" class="dialog-close" commandfor="new-person-dialog" command="close" aria-label="Close">✕</button>
+  </div>
+  <form method="post" action="{{url_for('people_create')}}">
+    <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
+    <div class="dialog-body inline-form">
+      <input type="text" name="name" placeholder="Name" required autofocus>
+      <input type="text" name="role" placeholder="Role">
+      <input type="email" name="email" placeholder="Email">
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn" commandfor="new-person-dialog" command="close">Cancel</button>
+      <button class="btn btn-primary" type="submit">Add person</button>
+    </div>
+  </form>
+</dialog>
+
+%# A directory on its own is a phone book. What makes it worth opening is the
+%# load column: who is carrying what, and who is carrying it late.
+<table class="data-table">
+  <thead>
+    <tr><th>Name</th><th>Role</th><th>Open tasks</th><th>Commitments</th><th>Account</th></tr>
+  </thead>
+  <tbody>
+    %for p in people:
+      %l = load[p.id]
+      <tr>
+        <td>
+          {{p.name}}
+          %if not p.active:
+            <span class="badge badge-inactive"><i class="dot"></i>Inactive</span>
+          %end
+        </td>
+        <td class="muted">{{p.role or '—'}}</td>
+        <td>{{l['tasks'] or '—'}}</td>
+        <td>
+          %if l['overdue']:
+            <span class="badge badge-overdue"><i class="dot"></i>{{l['overdue']}} overdue</span>
+          %elif l['commitments']:
+            {{l['commitments']}} open
+          %else:
+            —
+          %end
+        </td>
+        <td class="muted">{{p.user.email if p.user_id else 'No login'}}</td>
+      </tr>
+    %end
+    %if not people:
+      <tr><td colspan="5" class="muted">No people yet. Add the ones who own work.</td></tr>
+    %end
+  </tbody>
+</table>

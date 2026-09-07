@@ -1,0 +1,50 @@
+%rebase('layout', title='Cracks', back_url='/')
+%# The COO's page. Same ledger as the dashboard, asked a harsher question and
+%# not truncated to six lines.
+
+<header class="briefing">
+  <h1 class="briefing-hello">What's falling through the cracks?</h1>
+  <p class="briefing-standfirst">Everything late, at risk, gone quiet, or nobody's — sorted by how long it's been that way.</p>
+</header>
+
+<section class="briefing-section">
+  <h2>Overdue</h2>
+  %include('dashboard/_ledger', rows=overdue, empty='Nothing is overdue.')
+</section>
+
+<section class="briefing-section">
+  <h2>At risk</h2>
+  %include('dashboard/_ledger', rows=at_risk, empty='No project is in trouble.')
+</section>
+
+<section class="briefing-section">
+  <h2>Stalled</h2>
+  %include('dashboard/_ledger', rows=stalled, empty='Everything has moved recently.')
+</section>
+
+<section class="briefing-section">
+  <h2>Unassigned</h2>
+  %include('dashboard/_ledger', rows=unassigned, empty='Every piece of open work has an owner.')
+</section>
+
+<section class="briefing-section">
+  <h2>This week's commitments</h2>
+  %if commitments:
+    <table class="data-table">
+      <thead><tr><th>Person</th><th>Commitment</th><th>Due</th><th>Status</th></tr></thead>
+      <tbody>
+        %for c in commitments:
+          %shown = insights.commitment_display_status(c)
+          <tr onclick="location.href='{{url_for('commitments_list')}}'">
+            <td>{{c.person.name if c.person_id else '—'}}</td>
+            <td>{{c.description}}</td>
+            <td class="nowrap">{{insights.due_phrase(c.due_date).replace('due ', '').replace('was ', '')}}</td>
+            <td><span class="badge badge-{{shown}}"><i class="dot"></i>{{status_label(shown)}}</span></td>
+          </tr>
+        %end
+      </tbody>
+    </table>
+  %else:
+    <p class="muted">Nobody has promised anything this week.</p>
+  %end
+</section>

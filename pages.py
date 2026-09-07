@@ -24,13 +24,23 @@ from models import (
     Invite,
     Notification,
     PasswordReset,
+    Commitment,
+    Decision,
+    Note,
+    NoteLink,
+    Opportunity,
+    Person,
+    Project,
+    SUBJECT_TYPES,
     Task,
+    TASK_PRIORITIES,
     TASK_STATUSES,
     TeamMember,
     User,
-    seed_demo_data,
 )
 import ai
+import insights
+from seed import seed_demo_data
 from utils import (
     Mailer,
     MailerError,
@@ -43,6 +53,8 @@ from utils import (
     login_user,
     logout_user,
     notify,
+    parse_date,
+    parse_int,
     record_activity,
     redirect,
     require_login,
@@ -88,6 +100,17 @@ def _load_attachments(subject_type: str, subject_id: int) -> list[Attachment]:
     )
 
 
+def _linked_notes(subject_type: str, subject_id: int) -> list[Note]:
+    """The notes a record was extracted from — the other half of Capture's
+    promise that structure never replaces the text it came from."""
+    return list(
+        Note.select()
+        .join(NoteLink)
+        .where((NoteLink.subject_type == subject_type) & (NoteLink.subject_id == subject_id))
+        .order_by(Note.created_at.desc())
+    )
+
+
 def _load_activity(subject_type: str, subject_id: int, limit: int = 20) -> list[Activity]:
     return list(
         Activity.select()
@@ -100,6 +123,21 @@ def _load_activity(subject_type: str, subject_id: int, limit: int = 20) -> list[
 def _team_members() -> list[dict]:
     rows = TeamMember.select().join(User)
     return [{"member": m, "user": m.user} for m in rows]
+
+
+def _people() -> list[Person]:
+    """Everyone who can be handed a piece of work. Shared by every owner
+    select in the app — Pro's modules import this rather than each running
+    their own query, so the options are identical everywhere."""
+    return list(Person.select().where(Person.active == True).order_by(Person.name))  # noqa: E712
+
+
+def _open_projects() -> list[Project]:
+    return list(
+        Project.select()
+        .where(Project.archived_at.is_null(True) & (Project.status != "done"))
+        .order_by(Project.name)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +169,7 @@ def register_owner_submit():
     TeamMember.create(user=user, role="owner")
     seed_demo_data(user)
     login_user(user)
-    flash(f"Welcome, {name}! We've added a couple of sample clients and tasks to get you started.", "success")
+    flash(f"Welcome, {name}. We've loaded a demo company so the dashboard has something to say.", "success")
     redirect(url_for("dashboard"))
 
 
@@ -278,29 +316,12 @@ def reset_password_submit(token: str):
 
 # ---------------------------------------------------------------------------
 # Dashboard
+#
+# `/` lives in modules/dashboard/pages.py, not here — Pro's home screen is the
+# CEO briefing, and it needs the whole of insights.py. It still registers under
+# the route name "dashboard", so layout.html's nav and every existing
+# url_for("dashboard") keep resolving.
 # ---------------------------------------------------------------------------
-
-
-@app.route("/", method="GET", name="dashboard")
-@require_login
-def dashboard():
-    open_clients = Client.select().where(Client.archived_at.is_null(True)).count()
-    open_tasks = Task.select().where(Task.archived_at.is_null(True) & (Task.status != "done")).count()
-    done_tasks = Task.select().where(Task.archived_at.is_null(True) & (Task.status == "done")).count()
-    recent_clients = list(
-        Client.select().where(Client.archived_at.is_null(True)).order_by(Client.created_at.desc()).limit(5)
-    )
-    recent_tasks = list(
-        Task.select().where(Task.archived_at.is_null(True)).order_by(Task.created_at.desc()).limit(5)
-    )
-    return render(
-        "dashboard.html",
-        open_clients=open_clients,
-        open_tasks=open_tasks,
-        done_tasks=done_tasks,
-        recent_clients=recent_clients,
-        recent_tasks=recent_tasks,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -352,11 +373,32 @@ def client_detail(client_id: int):
     tasks = list(
         Task.select().where((Task.client == client) & (Task.archived_at.is_null(True))).order_by(Task.position)
     )
+    # Everything else this customer touches. This page is where Capture's
+    # payoff lands — paste a meeting note, confirm, come back here, and the
+    # deal, the promises and the note itself are all sitting on the record.
     return render(
         "client_detail.html",
         client=client,
         tasks=tasks,
         statuses=CLIENT_STATUSES,
+        opportunities=list(
+            Opportunity.select()
+            .where((Opportunity.customer == client) & Opportunity.archived_at.is_null(True))
+            .order_by(Opportunity.value.desc())
+        ),
+        projects=list(
+            Project.select()
+            .where((Project.customer == client) & Project.archived_at.is_null(True))
+            .order_by(Project.due_date)
+        ),
+        commitments=list(
+            Commitment.select().where(Commitment.customer == client).order_by(Commitment.due_date)
+        ),
+        decisions=list(
+            Decision.select().where(Decision.customer == client).order_by(Decision.decided_on.desc())
+        ),
+        notes=_linked_notes("client", client.id),
+        insights=insights,
         comments=_load_comments("client", client.id),
         attachments=_load_attachments("client", client.id),
         activity=_load_activity("client", client.id),
@@ -404,10 +446,6 @@ def _active_clients() -> list[Client]:
     return list(Client.select().where(Client.archived_at.is_null(True)).order_by(Client.name))
 
 
-def _team_users() -> list[User]:
-    return [m.user for m in TeamMember.select().join(User).order_by(User.name)]
-
-
 @app.route("/tasks", method="GET", name="tasks_list")
 @require_login
 def tasks_list():
@@ -421,10 +459,24 @@ def tasks_list():
         "tasks_list.html",
         grouped=grouped,
         statuses=TASK_STATUSES,
+        priorities=TASK_PRIORITIES,
         clients=_active_clients(),
-        team_users=_team_users(),
+        people=_people(),
+        projects=_open_projects(),
+        insights=insights,
         q=q,
     )
+
+
+def _assignee_for(person: Person | None) -> User | None:
+    """Core's notification path keys off Task.assignee (a User), but Pro's
+    forms pick an owner (a Person). Mirror the choice across when that person
+    has an account, so reassignment still notifies someone; when they don't,
+    the task simply has an owner and no notification, which is the honest
+    outcome."""
+    if person is None or person.user_id is None:
+        return None
+    return person.user
 
 
 @app.route("/tasks", method="POST", name="tasks_create")
@@ -434,15 +486,19 @@ def tasks_create():
     if not title:
         flash("A task needs a title.", "error")
         redirect(url_for("tasks_list"))
-    client_id = request.forms.get("client_id") or ""
-    assignee_id = request.forms.get("assignee_id") or ""
+    owner = Person.get_or_none(Person.id == parse_int(request.forms.get("owner_id")))
+    assignee = _assignee_for(owner)
     last = Task.select().order_by(Task.position.desc()).first()
     task = Task.create(
         title=title,
         description=(request.forms.get("description") or "").strip(),
         status=request.forms.get("status") or "todo",
-        client=int(client_id) if client_id else None,
-        assignee=int(assignee_id) if assignee_id else None,
+        client=parse_int(request.forms.get("client_id")),
+        project=parse_int(request.forms.get("project_id")),
+        owner=owner,
+        assignee=assignee,
+        due_date=parse_date(request.forms.get("due_date")),
+        priority=request.forms.get("priority") or "normal",
         position=(last.position + 1) if last else 0,
         created_by=current_user(),
     )
@@ -464,8 +520,11 @@ def task_detail(task_id: int):
         "task_detail.html",
         task=task,
         statuses=TASK_STATUSES,
+        priorities=TASK_PRIORITIES,
         clients=_active_clients(),
-        team_users=_team_users(),
+        people=_people(),
+        projects=_open_projects(),
+        notes=_linked_notes("task", task.id),
         comments=_load_comments("task", task.id),
         attachments=_load_attachments("task", task.id),
         activity=_load_activity("task", task.id),
@@ -483,12 +542,16 @@ def task_update(task_id: int):
     task.title = (request.forms.get("title") or task.title).strip()
     task.description = (request.forms.get("description") or "").strip()
     task.status = request.forms.get("status") or task.status
-    client_id = request.forms.get("client_id") or ""
-    assignee_id = request.forms.get("assignee_id") or ""
-    task.client = int(client_id) if client_id else None
-    new_assignee_id = int(assignee_id) if assignee_id else None
+    task.client = parse_int(request.forms.get("client_id"))
+    task.project = parse_int(request.forms.get("project_id"))
+    task.due_date = parse_date(request.forms.get("due_date"))
+    task.priority = request.forms.get("priority") or task.priority
+    owner = Person.get_or_none(Person.id == parse_int(request.forms.get("owner_id")))
+    task.owner = owner
+    new_assignee = _assignee_for(owner)
+    new_assignee_id = new_assignee.id if new_assignee else None
     reassigned = new_assignee_id and new_assignee_id != task.assignee_id
-    task.assignee = new_assignee_id
+    task.assignee = new_assignee
     task.updated_at = datetime.datetime.now()
     task.save()
     if task.status != old_status:
@@ -547,13 +610,12 @@ def task_archive(task_id: int):
 # Comments — generic over Client/Task via subject_type/subject_id.
 # ---------------------------------------------------------------------------
 
-_DETAIL_ROUTE = {"client": "client_detail", "task": "task_detail"}
-_DETAIL_KWARG = {"client": "client_id", "task": "task_id"}
-
-
 def _redirect_to_subject(subject_type: str, subject_id: int):
-    kwarg = _DETAIL_KWARG.get(subject_type, "client_id")
-    redirect(url_for(_DETAIL_ROUTE.get(subject_type, "clients_list"), **{kwarg: subject_id}))
+    """Back to whatever was just commented on / attached to. The type-to-route
+    table lives in insights.SUBJECT_REGISTRY, which is also what the activity
+    feed and the note's linked-records list resolve through — one table, so a
+    new commentable record type is a single entry rather than three."""
+    redirect(insights.subject_url(subject_type, subject_id))
 
 
 @app.route("/comments", method="POST", name="comment_create")
@@ -562,7 +624,7 @@ def comment_create():
     subject_type = request.forms.get("subject_type") or ""
     subject_id = int(request.forms.get("subject_id") or 0)
     body = (request.forms.get("body") or "").strip()
-    if subject_type not in ("client", "task") or not subject_id or not body:
+    if subject_type not in SUBJECT_TYPES or not subject_id or not body:
         flash("Couldn't add that comment.", "error")
         redirect(url_for("dashboard"))
     Comment.create(subject_type=subject_type, subject_id=subject_id, body=body, author=current_user())
@@ -601,7 +663,7 @@ def attachment_upload():
     subject_type = request.forms.get("subject_type") or ""
     subject_id = int(request.forms.get("subject_id") or 0)
     upload = request.files.get("file")
-    if subject_type not in ("client", "task") or not subject_id or upload is None or not upload.filename:
+    if subject_type not in SUBJECT_TYPES or not subject_id or upload is None or not upload.filename:
         flash("Choose a file to upload.", "error")
         _redirect_to_subject(subject_type or "client", subject_id or 0)
     safe_name = f"{uuid.uuid4().hex}_{slugify(os.path.splitext(upload.filename)[0])}{os.path.splitext(upload.filename)[1]}"

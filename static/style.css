@@ -84,6 +84,21 @@
   --shadow-card-1: light-dark(rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.3));
   --shadow-card-2: light-dark(rgba(0, 0, 0, 0.10), rgba(0, 0, 0, 0.55));
   --shadow-card: 0 1px 2px var(--shadow-card-1), 0 8px 24px -12px var(--shadow-card-2);
+
+  /* A hairline quieter than --border. The ledger stacks twenty rules on one
+     screen; at --border's weight that reads as a grid, which is exactly the
+     spreadsheet impression these pages are trying not to give. */
+  --rule: light-dark(#ececef, #1c1c1f);
+
+  /* The briefing voice. The dashboard and the control center are prose a
+     person reads, not data they scan, and a serif says that before a single
+     word is read. Confined to those headlines and the ledger's primary line —
+     everything else in the app stays in the sans stack.
+
+     System fonts only, deliberately: no @font-face, no CDN link. This app is
+     meant to run offline and self-hosted, and one webfont would be the first
+     thing in it that needs the network to look right. */
+  --font-serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
 }
 
 * { box-sizing: border-box; }
@@ -221,6 +236,20 @@ h3 { font-size: var(--text-6); font-weight: 600; }
 }
 
 .nav-icon { flex-shrink: 0; opacity: 0.85; }
+
+/* Thirteen links is too many to scan as one list, so they're grouped by what
+   you'd be doing: Today, Pipeline, Work, Record, More. Same mono-caps label
+   the ledger gutter and the snapshot use, so the nav reads as part of the
+   same system rather than a separate chrome vocabulary. */
+.nav-section {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--faint-foreground);
+  padding: var(--space-4) 0.75rem var(--space-1);
+}
+.nav-section:first-child { padding-top: var(--space-1); }
 
 .nav-link:hover { background: var(--accent); color: var(--foreground); }
 .nav-link:hover .nav-icon { opacity: 1; }
@@ -578,6 +607,20 @@ button.btn-primary:active, a.btn.btn-primary:active, [type="submit"].btn-primary
 .badge-done { color: var(--success); }
 .badge-inactive { color: var(--faint-foreground); }
 
+/* Pro's statuses, mapped onto the same four inks rather than new hues: grey
+   is "not started or not urgent", amber is "in flight", green is "finished
+   or won", red is "wrong". Sixteen statuses across six record types would be
+   unreadable as sixteen colors; as four, a person can learn the scheme once
+   and read every screen. */
+.badge-planning, .badge-open, .badge-qualified,
+.badge-decided, .badge-normal, .badge-low { color: var(--muted-foreground); }
+.badge-proposal, .badge-negotiation, .badge-under_review,
+.badge-high { color: var(--warning); }
+.badge-won { color: var(--success); }
+.badge-overdue, .badge-at_risk, .badge-blocked,
+.badge-lost, .badge-urgent { color: var(--danger); }
+.badge-cancelled, .badge-superseded { color: var(--faint-foreground); text-decoration: line-through; }
+
 .status-dot {
   display: inline-block;
   width: 7px;
@@ -590,6 +633,14 @@ button.btn-primary:active, a.btn.btn-primary:active, [type="submit"].btn-primary
 .status-dot-active, .status-dot-in_progress { background: var(--warning); }
 .status-dot-done { background: var(--success); }
 .status-dot-inactive { background: var(--faint-foreground); }
+.status-dot-planning, .status-dot-open, .status-dot-qualified,
+.status-dot-decided { background: var(--muted-foreground); }
+.status-dot-proposal, .status-dot-negotiation,
+.status-dot-under_review { background: var(--warning); }
+.status-dot-won { background: var(--success); }
+.status-dot-overdue, .status-dot-at_risk, .status-dot-blocked,
+.status-dot-lost { background: var(--danger); }
+.status-dot-cancelled, .status-dot-superseded { background: var(--faint-foreground); }
 
 /* ── Data table ─────────────────────────────────────────── */
 
@@ -685,6 +736,353 @@ button.btn-primary:active, a.btn.btn-primary:active, [type="submit"].btn-primary
 
 .kanban-card-title { font-weight: 500; font-size: 0.875rem; margin-bottom: 0.25rem; }
 .kanban-card-meta { font-size: 0.75rem; color: var(--muted-foreground); }
+
+/* ── The briefing: headline, ledger, snapshot, capture ──────
+   Pro's dashboard and control center. The one idea holding these together is
+   the ledger — a mono gutter carrying elapsed time, a hairline between rows,
+   and no card around any of it. Both pages, and the Capture review, are that
+   same row repeated, which is what makes the CEO's six lines read as a slice
+   of the COO's full list rather than a different feature. */
+
+.briefing { margin-bottom: var(--space-8); }
+
+.briefing-hello {
+  font-family: var(--font-serif);
+  font-size: clamp(1.6rem, 1.1rem + 1.6vw, 2.15rem);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  margin: 0;
+}
+
+.briefing-standfirst {
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  color: var(--muted-foreground);
+  margin: var(--space-2) 0 0;
+  max-width: 46rem;
+}
+
+.briefing-section { margin-bottom: var(--space-10); }
+.briefing-section > h2 { margin-bottom: var(--space-1); }
+
+/* ── Ledger ──────────────────────────────────────────────── */
+
+.ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.ledger-row {
+  display: grid;
+  grid-template-columns: 4.75rem 1fr auto;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--rule);
+}
+
+.ledger-row:hover { background: var(--faint); }
+
+/* The gutter is the signature: the number that matters on both of these
+   pages is always "how long has this been wrong", so it gets its own column,
+   right-aligned in mono, ahead of the words. */
+.ledger-gutter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  font-family: var(--font-mono);
+  line-height: 1.25;
+  color: var(--muted-foreground);
+}
+
+.ledger-gutter b {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.ledger-gutter i {
+  font-style: normal;
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  opacity: 0.7;
+}
+
+.ledger-overdue .ledger-gutter { color: var(--danger); }
+.ledger-stalled .ledger-gutter { color: var(--warning); }
+
+.ledger-body { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+
+.ledger-primary {
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  line-height: 1.35;
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+a.ledger-primary:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+.ledger-secondary {
+  font-size: var(--text-8);
+  color: var(--muted-foreground);
+}
+
+.ledger-pick { display: flex; align-items: center; padding-left: var(--space-2); }
+.ledger-pick input { width: 1.05rem; height: 1.05rem; accent-color: var(--primary); cursor: pointer; }
+
+/* The one orchestrated moment in the app: the briefing arrives a line at a
+   time instead of appearing all at once. Capped at eight so a long control-
+   center list doesn't leave the reader waiting on the tail. */
+@media (prefers-reduced-motion: no-preference) {
+  .briefing-section .ledger-row {
+    animation: ledger-in 0.22s ease-out backwards;
+  }
+  .briefing-section .ledger-row:nth-child(1) { animation-delay: 0.00s; }
+  .briefing-section .ledger-row:nth-child(2) { animation-delay: 0.04s; }
+  .briefing-section .ledger-row:nth-child(3) { animation-delay: 0.08s; }
+  .briefing-section .ledger-row:nth-child(4) { animation-delay: 0.12s; }
+  .briefing-section .ledger-row:nth-child(5) { animation-delay: 0.16s; }
+  .briefing-section .ledger-row:nth-child(6) { animation-delay: 0.20s; }
+  .briefing-section .ledger-row:nth-child(7) { animation-delay: 0.24s; }
+  .briefing-section .ledger-row:nth-child(n + 8) { animation-delay: 0.28s; }
+}
+
+@keyframes ledger-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Snapshot strip ──────────────────────────────────────── */
+/* Five numbers on one hairline-bounded line, not five cards. They are
+   supporting evidence for the ledger above, and tiles would outrank it. */
+
+.snapshot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-10);
+  padding: var(--space-4) var(--space-2);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--space-10);
+}
+
+.snapshot-cell {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  text-decoration: none;
+  color: inherit;
+}
+
+.snapshot-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.snapshot-label {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted-foreground);
+}
+
+.snapshot-cell:hover .snapshot-value { color: var(--indigo-accent); }
+
+/* ── What's changed ──────────────────────────────────────── */
+
+.changed-day + .changed-day { margin-top: var(--space-6); }
+
+/* A week of activity is a lot of links in a column. Underlining every one
+   turns the feed into a wall of blue; they carry their own affordance from
+   being a dense list of one-line items, and get the underline on hover. */
+.dash-col .plain-list a,
+.changed-day .plain-list a {
+  color: var(--foreground);
+  text-decoration: none;
+}
+.dash-col .plain-list a:hover,
+.changed-day .plain-list a:hover {
+  color: var(--indigo-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.changed-date {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted-foreground);
+  padding-bottom: var(--space-1);
+}
+
+/* ── Capture ─────────────────────────────────────────────── */
+/* The only filled surface on the dashboard, and the first thing on it.
+   Everything below is the company reading itself back; this is the one place
+   you write to it, so it sits at the top and looks like a different kind of
+   act. Collapsed it costs about 150px, which keeps the attention ledger under
+   it above the fold; expanded into review it takes over the same slot, right
+   where you were looking when you pressed the button. */
+
+.capture {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: var(--space-5) var(--space-6);
+  margin-bottom: var(--space-8);
+  box-shadow: var(--shadow-card);
+}
+
+.capture-head { margin-bottom: var(--space-3); }
+
+.capture-title {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.capture-sub {
+  color: var(--muted-foreground);
+  font-size: var(--text-7);
+  margin: var(--space-1) 0 0;
+  max-width: 44rem;
+}
+
+.capture-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 4.5rem;
+  font-family: inherit;
+  line-height: 1.55;
+}
+
+.capture-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.capture-hint { color: var(--muted-foreground); font-size: var(--text-8); }
+.capture-discard { margin-top: var(--space-2); }
+.ledger-review { border-top-color: var(--border); }
+
+/* ── Pipeline board ──────────────────────────────────────── */
+/* The same kanban the task board uses, with six stages instead of three —
+   so it scrolls sideways rather than crushing every column to unreadable.
+   A deal's stage is the one thing a sales board has to show spatially; a
+   table sorted by value would hide exactly that. */
+
+.pipeline { overflow-x: auto; padding-bottom: var(--space-2); }
+.pipeline .kanban { grid-auto-columns: minmax(190px, 1fr); min-width: 62rem; }
+.pipeline .kanban-col h3 { flex-wrap: wrap; }
+.pipeline-total {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--faint-foreground);
+}
+.deal-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+.deal-next {
+  display: block;
+  font-size: var(--text-8);
+  color: var(--muted-foreground);
+  margin-top: 0.2rem;
+}
+.deal-next.is-late { color: var(--danger); }
+
+/* ── Filter chips (commitments) ──────────────────────────── */
+
+.filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
+.filter-chip {
+  padding: 0.25rem 0.7rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  text-decoration: none;
+  font-size: var(--text-8);
+}
+.filter-chip:hover { border-color: var(--indigo-accent); color: var(--foreground); }
+.filter-chip.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* ── Note ────────────────────────────────────────────────── */
+
+.note-body {
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--space-6);
+}
+.note-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.note-tag {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--muted-foreground);
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+}
+
+/* ── Decision ────────────────────────────────────────────── */
+/* Why-and-what-happened-after, which is the only reason to keep a decision
+   log at all. The rationale gets the serif and a rule, so it reads as the
+   substance rather than a subtitle under the title. */
+
+.decision { padding: var(--space-6) 0; border-bottom: 1px solid var(--rule); }
+.decision:first-of-type { border-top: 1px solid var(--rule); }
+.decision-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.decision-title {
+  font-family: var(--font-serif);
+  font-size: 1.1875rem;
+  font-weight: 400;
+  margin: 0;
+}
+.decision-what { margin: var(--space-2) 0 0; }
+.decision-why {
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--border);
+  font-family: var(--font-serif);
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+.decision-meta {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--faint-foreground);
+}
 
 /* ── Dashboard ──────────────────────────────────────────── */
 
@@ -907,6 +1305,24 @@ button.btn-primary:active, a.btn.btn-primary:active, [type="submit"].btn-primary
   max-width: 32rem;
 }
 
+/* ── Small shared utilities ─────────────────────────────── */
+
+.nowrap { white-space: nowrap; }
+
+/* Label text for a control whose meaning is already visually obvious (the
+   Capture review's row checkboxes) but which a screen reader would otherwise
+   announce as an unlabelled tickbox. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ── Responsive ─────────────────────────────────────────── */
 
 @media (max-width: 860px) {
@@ -945,4 +1361,12 @@ button.btn-primary:active, a.btn.btn-primary:active, [type="submit"].btn-primary
   .detail-cols, .dash-cols { grid-template-columns: 1fr; }
   .detail-side { position: static; }
   .dash-stats { flex-wrap: wrap; }
+
+  /* The ledger keeps its gutter on narrow screens — dropping it would remove
+     the one column that carries the point — but it narrows, and the row's
+     two text lines get the rest. */
+  .ledger-row { grid-template-columns: 3.5rem 1fr auto; gap: var(--space-3); }
+  .ledger-gutter b { font-size: 0.875rem; }
+  .snapshot { gap: var(--space-3) var(--space-6); }
+  .capture { padding: var(--space-4); }
 }

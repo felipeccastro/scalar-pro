@@ -1,5 +1,20 @@
-"""Ask-AI chat: a read-only tool-calling agent over Client/Task, plus the
-hand-rolled Markdown renderer used to display its replies.
+"""Everything this app asks a model to do.
+
+Three jobs, and deliberately only three:
+
+1. **Explain** — a tool-calling chat agent with read tools over every record
+   type, plus `get_attention`, which returns the dashboard and control center
+   as data so the assistant's answer can't contradict the page the user is
+   looking at. Writes are still limited to the six Client/Task tools, each of
+   which pauses for human confirmation.
+2. **Extract** — `complete_json()`, the JSON-mode call behind Capture. See
+   modules/capture/extract.py for the prompt, the allow-list and everything
+   that happens to the result before it's allowed near the database.
+3. **Summarize** — no separate code path: it's the chat agent answering
+   "what needs my attention?" through the tools above. The dashboards
+   themselves are computed in Python (insights.py), never generated, because
+   a 30-second morning read can't wait on an API call and must not invent a
+   number.
 
 Two interchangeable backends (matches admin/services/ai.py's shape):
   - OpenAI-compatible cloud API, used when OPENAI_API_KEY is set
@@ -29,8 +44,27 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from models import CLIENT_STATUSES, TASK_STATUSES, ChatMessage, ChatThread, Client, Task, User
+from models import (
+    CLIENT_STATUSES,
+    COMMITMENT_STATUSES,
+    OPPORTUNITY_OPEN_STAGES,
+    OPPORTUNITY_STAGES,
+    PROJECT_STATUSES,
+    TASK_STATUSES,
+    ChatMessage,
+    ChatThread,
+    Client,
+    Commitment,
+    Decision,
+    Note,
+    Opportunity,
+    Person,
+    Project,
+    Task,
+    User,
+)
 from utils import notify, record_activity
+import insights
 
 REQUEST_TIMEOUT = 120
 MAX_TOOL_ROUNDTRIPS = 6
@@ -138,7 +172,10 @@ TOOLS_SCHEMA: list[dict] = [
         "type": "function",
         "function": {
             "name": "search",
-            "description": "Keyword search across clients and tasks (name, company, notes, title, description).",
+            "description": (
+                "Keyword search across every record type — customers, tasks, projects, "
+                "opportunities, commitments, decisions, people and notes."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -147,6 +184,102 @@ TOOLS_SCHEMA: list[dict] = [
                 },
                 "required": ["query"],
             },
+        },
+    },
+    # --- Pro's records. All read-only: the assistant explains the business,
+    # it doesn't restructure it. Writing is still limited to the Client/Task
+    # tools below, which pause for confirmation.
+    {
+        "type": "function",
+        "function": {
+            "name": "list_opportunities",
+            "description": (
+                "Deals in the pipeline, biggest first. Defaults to open stages only; pass "
+                "stage=won or stage=lost to see closed ones."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "stage": {"type": "string", "enum": list(OPPORTUNITY_STAGES)},
+                    "stalled_days": {
+                        "type": "integer",
+                        "description": "Only deals with no activity for at least this many days.",
+                    },
+                    "limit": {"type": "integer", "description": "Default 20, max 50."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_projects",
+            "description": "Projects, soonest deadline first, each with its open/overdue task counts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": list(PROJECT_STATUSES)},
+                    "limit": {"type": "integer", "description": "Default 20, max 50."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_commitments",
+            "description": (
+                "Who promised what. Use overdue_only=true for the ones that have slipped, or "
+                "person to answer \"what did João promise?\"."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": list(COMMITMENT_STATUSES)},
+                    "person": {"type": "string", "description": "Person's name, or part of it."},
+                    "overdue_only": {"type": "boolean"},
+                    "limit": {"type": "integer", "description": "Default 20, max 50."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_decisions",
+            "description": (
+                "What was decided and why, most recent first. Use this for \"what did we decide "
+                "about X\" — the rationale is stored, not just the outcome."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Match against title, decision or rationale."},
+                    "limit": {"type": "integer", "description": "Default 20, max 50."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_people",
+            "description": "The people directory, with how many open tasks and commitments each is carrying.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_attention",
+            "description": (
+                "The dashboard and control center as data: what needs attention, the five "
+                "headline numbers, and what's overdue, at risk, stalled or unassigned. Use this "
+                "first for broad questions like \"what needs my attention?\" or \"what's falling "
+                "through the cracks?\" — it's the same computation the pages themselves run, so "
+                "the answer can't contradict what the user is looking at."
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -349,7 +482,213 @@ def _tool_search(*, query: str, limit: int = 10) -> dict:
     )
     for t in tasks:
         hits.append({"subject_type": "task", "subject_id": t.id, "title": t.title, "snippet": t.description[:120]})
+    for spec in _SEARCHABLE:
+        rows = spec["model"].select().where(spec["match"](query)).limit(limit)
+        for r in rows:
+            hits.append({
+                "subject_type": spec["type"], "subject_id": r.id,
+                "title": str(getattr(r, spec["title"]))[:120],
+                "snippet": str(getattr(r, spec["snippet"]) or "")[:120],
+            })
     return {"query": query, "hits": hits[:limit]}
+
+
+# Pro's records, folded into the same substring search. A table rather than
+# six more copy-pasted blocks above: adding a record type to search is a row.
+_SEARCHABLE = (
+    {"type": "project", "model": Project, "title": "name", "snippet": "description",
+     "match": lambda q: Project.name.contains(q) | Project.description.contains(q)},
+    {"type": "opportunity", "model": Opportunity, "title": "title", "snippet": "notes",
+     "match": lambda q: Opportunity.title.contains(q) | Opportunity.notes.contains(q)},
+    {"type": "commitment", "model": Commitment, "title": "description", "snippet": "status",
+     "match": lambda q: Commitment.description.contains(q)},
+    {"type": "decision", "model": Decision, "title": "title", "snippet": "rationale",
+     "match": lambda q: Decision.title.contains(q) | Decision.decision.contains(q) | Decision.rationale.contains(q)},
+    {"type": "person", "model": Person, "title": "name", "snippet": "role",
+     "match": lambda q: Person.name.contains(q) | Person.role.contains(q)},
+    {"type": "note", "model": Note, "title": "title", "snippet": "body",
+     "match": lambda q: Note.title.contains(q) | Note.body.contains(q)},
+)
+
+
+# ---------------------------------------------------------------------------
+# Pro's read tools.
+#
+# All read-only, so none of them appears in _MUTATING_TOOLS and none needs a
+# confirmation branch. That's the deliberate shape of §8 in the spec: the
+# assistant explains the business and extracts records from text, but the only
+# things it can write through chat are the Client/Task tools below, which still
+# pause for a human.
+#
+# Same contract as the tools above: keyword-only args, always return a dict,
+# never raise.
+# ---------------------------------------------------------------------------
+
+
+def _iso(value) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _tool_list_opportunities(
+    *, stage: str | None = None, stalled_days: int | None = None, limit: int = 20
+) -> dict:
+    limit = max(1, min(int(limit or 20), 50))
+    q = Opportunity.select().where(Opportunity.archived_at.is_null(True))
+    if stage:
+        q = q.where(Opportunity.stage == stage)
+    else:
+        # Won and lost deals are history, not pipeline. Asking for them
+        # explicitly by stage still works; they just don't pad the default
+        # list or the pipeline total.
+        q = q.where(Opportunity.stage.in_(OPPORTUNITY_OPEN_STAGES))
+    if stalled_days:
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=int(stalled_days))
+        q = q.where(
+            (Opportunity.last_activity_at < cutoff)
+            & Opportunity.stage.in_(OPPORTUNITY_OPEN_STAGES)
+        )
+    rows = list(q.order_by(Opportunity.value.desc()).limit(limit))
+    return {
+        "count": len(rows),
+        "pipeline_value": sum(o.value for o in rows),
+        "opportunities": [{
+            "id": o.id, "title": o.title, "value": o.value, "stage": o.stage,
+            "customer": o.customer.name if o.customer_id else None,
+            "owner": o.owner.name if o.owner_id else None,
+            "next_action": o.next_action or None,
+            "next_action_due": _iso(o.next_action_due),
+            "days_since_activity": insights.days_quiet(o.last_activity_at),
+        } for o in rows],
+    }
+
+
+def _tool_list_projects(*, status: str | None = None, limit: int = 20) -> dict:
+    limit = max(1, min(int(limit or 20), 50))
+    q = Project.select().where(Project.archived_at.is_null(True))
+    if status:
+        q = q.where(Project.status == status)
+    rows = list(q.order_by(Project.due_date.asc(nulls="LAST")).limit(limit))
+    out = []
+    for p in rows:
+        tasks = list(Task.select().where((Task.project == p) & Task.archived_at.is_null(True)))
+        open_tasks = [t for t in tasks if t.status != "done"]
+        out.append({
+            "id": p.id, "name": p.name, "status": p.status,
+            "owner": p.owner.name if p.owner_id else None,
+            "customer": p.customer.name if p.customer_id else None,
+            "due_date": _iso(p.due_date),
+            "days_late": max(0, insights.days_late(p.due_date)) if p.due_date else 0,
+            "open_tasks": len(open_tasks),
+            "overdue_tasks": len([t for t in open_tasks if t.due_date and t.due_date < insights.today()]),
+        })
+    return {"count": len(out), "projects": out}
+
+
+def _tool_list_commitments(
+    *, status: str | None = None, person: str | None = None,
+    overdue_only: bool = False, limit: int = 20,
+) -> dict:
+    limit = max(1, min(int(limit or 20), 50))
+    q = Commitment.select()
+    if status:
+        q = q.where(Commitment.status == status)
+    if overdue_only:
+        q = q.where(
+            (Commitment.status == "open")
+            & Commitment.due_date.is_null(False)
+            & (Commitment.due_date < insights.today())
+        )
+    if person:
+        matches = [p.id for p in Person.select().where(Person.name.contains(person))]
+        if not matches:
+            return {"count": 0, "commitments": [], "note": f"Nobody here matches “{person}”."}
+        q = q.where(Commitment.person.in_(matches))
+    rows = list(q.order_by(Commitment.due_date.asc(nulls="LAST")).limit(limit))
+    return {
+        "count": len(rows),
+        "commitments": [{
+            "id": c.id, "description": c.description,
+            "person": c.person.name if c.person_id else None,
+            "due_date": _iso(c.due_date),
+            # The derived status, not the stored one — "overdue" is what a
+            # person means, and the model should say the same word they would.
+            "status": insights.commitment_display_status(c),
+            "customer": c.customer.name if c.customer_id else None,
+            "project": c.project.name if c.project_id else None,
+            "source": c.source,
+        } for c in rows],
+    }
+
+
+def _tool_list_decisions(*, query: str | None = None, limit: int = 20) -> dict:
+    limit = max(1, min(int(limit or 20), 50))
+    q = Decision.select()
+    if query:
+        q = q.where(
+            Decision.title.contains(query)
+            | Decision.decision.contains(query)
+            | Decision.rationale.contains(query)
+        )
+    rows = list(q.order_by(Decision.decided_on.desc(), Decision.id.desc()).limit(limit))
+    return {
+        "count": len(rows),
+        "decisions": [{
+            "id": d.id, "title": d.title, "decision": d.decision,
+            "rationale": d.rationale, "status": d.status,
+            "owner": d.owner.name if d.owner_id else None,
+            "decided_on": _iso(d.decided_on), "review_on": _iso(d.review_on),
+            "project": d.project.name if d.project_id else None,
+            "customer": d.customer.name if d.customer_id else None,
+        } for d in rows],
+    }
+
+
+def _tool_list_people() -> dict:
+    rows = list(Person.select().order_by(Person.name))
+    out = []
+    for p in rows:
+        open_commitments = [c for c in p.commitments if c.status == "open"]
+        out.append({
+            "id": p.id, "name": p.name, "role": p.role or None, "active": p.active,
+            "open_tasks": Task.select().where(
+                (Task.owner == p) & Task.archived_at.is_null(True) & (Task.status != "done")
+            ).count(),
+            "open_commitments": len(open_commitments),
+            "overdue_commitments": len([
+                c for c in open_commitments if c.due_date and c.due_date < insights.today()
+            ]),
+        })
+    return {"count": len(out), "people": out}
+
+
+def _tool_get_attention() -> dict:
+    """The dashboard and control center, as data.
+
+    Calls the same insights.py functions the pages render, so the assistant
+    physically cannot give an answer that contradicts the screen the user is
+    looking at — which is the whole reason this tool exists rather than
+    letting the model assemble the picture from six list calls."""
+    def flatten(rows):
+        return [{
+            "when": f"{r['gutter']} {r['note']}".strip(),
+            "what": r["primary"], "detail": r["secondary"],
+        } for r in rows]
+
+    return {
+        "attention": flatten(insights.attention_rows()),
+        "snapshot": {s["label"]: s["value"] for s in insights.snapshot()},
+        "overdue": flatten(insights.overdue_rows()),
+        "at_risk": flatten(insights.at_risk_projects()),
+        "stalled": flatten(insights.stalled_rows()),
+        "unassigned": flatten(insights.unassigned_rows()),
+        "commitments_this_week": [{
+            "person": c.person.name if c.person_id else None,
+            "commitment": c.description,
+            "due": _iso(c.due_date),
+            "status": insights.commitment_display_status(c),
+        } for c in insights.commitments_this_week()],
+        "decisions_due_for_review": [d.title for d in insights.decisions_due_for_review()],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +854,12 @@ _DISPATCH = {
     "list_tasks": _tool_list_tasks,
     "get_task": _tool_get_task,
     "search": _tool_search,
+    "list_opportunities": _tool_list_opportunities,
+    "list_projects": _tool_list_projects,
+    "list_commitments": _tool_list_commitments,
+    "list_decisions": _tool_list_decisions,
+    "list_people": _tool_list_people,
+    "get_attention": _tool_get_attention,
     "create_client": _tool_create_client,
     "update_client": _tool_update_client,
     "archive_client": _tool_archive_client,
@@ -603,14 +948,28 @@ def _describe_tool_call(name: str, args: dict) -> str:
 # Chat
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """You are an assistant embedded in a small CRM/task-tracking app. \
-It has two kinds of records: Clients (name, email, phone, company, status: lead/active/inactive, \
-notes) and Tasks (title, description, status: todo/in_progress/done, optional assignee, optional \
-linked client). There is only one team using this app — no workspaces, no other tenants.
+SYSTEM_PROMPT = """You are an assistant embedded in Binders Pro, the operating system a small \
+company runs on. There is only one team using this app — no workspaces, no other tenants.
 
-You have read-only tools: list_clients, get_client, list_tasks, get_task, search. Use them \
-proactively instead of guessing — e.g. "what's overdue for Acme?" -> search("Acme") or \
-list_clients(), then get_client(id) to see their tasks.
+The records are: Customers (stored as clients: name, email, phone, company, status \
+lead/active/inactive, notes), People (the directory of who can own work — not the same as user \
+accounts), Projects, Tasks, Opportunities (deals, with a value and a stage), Commitments (someone \
+promised to do a specific thing), Decisions (what was decided and *why*), and Notes (the raw text \
+records were extracted from).
+
+You have read-only tools: list_clients, get_client, list_tasks, get_task, list_opportunities, \
+list_projects, list_commitments, list_decisions, list_people, get_attention, search. Use them \
+proactively instead of guessing.
+
+Reach for get_attention first on any broad question — "what needs my attention?", "what's \
+stalled?", "what's falling through the cracks?". It returns exactly what the dashboard and the \
+control center are showing the user, so your answer will match their screen. Use the narrower \
+tools for specific questions: "what did João promise?" -> list_commitments(person="João"); \
+"what did we decide about pricing?" -> list_decisions(query="pricing"), and quote the rationale, \
+because the reason is the part worth having.
+
+Overdue is never stored — it's computed from a due date against today, and the tools already \
+return it that way. Don't recompute it yourself or contradict what a tool told you.
 
 You also have write tools: create_client, update_client, archive_client, create_task, \
 update_task, archive_task. Every write tool call is paused and shown to a human for explicit \
@@ -679,13 +1038,18 @@ def _parse_tool_args(raw: Any) -> dict:
     return {}
 
 
-def _post_openai(convo: list[dict], *, tools: list[dict] | None, key: str) -> dict:
-    payload: dict = {"model": OPENAI_MODEL, "messages": convo, "max_completion_tokens": 1200}
+def _post_openai(
+    convo: list[dict], *, tools: list[dict] | None, key: str,
+    json_mode: bool = False, max_tokens: int = 1200,
+) -> dict:
+    payload: dict = {"model": OPENAI_MODEL, "messages": convo, "max_completion_tokens": max_tokens}
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
         if _model_uses_reasoning_effort(OPENAI_MODEL):
             payload["reasoning_effort"] = "none"
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
     data = _http_json(
         OPENAI_BASE_URL + "/chat/completions", payload=payload, headers={"Authorization": f"Bearer {key}"}
     )
@@ -695,15 +1059,68 @@ def _post_openai(convo: list[dict], *, tools: list[dict] | None, key: str) -> di
     return choices[0].get("message") or {}
 
 
-def _post_ollama(convo: list[dict], *, tools: list[dict] | None) -> dict:
+def _post_ollama(
+    convo: list[dict], *, tools: list[dict] | None,
+    json_mode: bool = False, max_tokens: int = 1200,
+) -> dict:
     payload: dict = {
         "model": OLLAMA_MODEL, "messages": convo, "stream": False,
-        "keep_alive": "30m", "options": {"temperature": 0.3, "num_predict": 1200},
+        "keep_alive": "30m", "options": {"temperature": 0.3, "num_predict": max_tokens},
     }
     if tools:
         payload["tools"] = tools
+    if json_mode:
+        payload["format"] = "json"
     data = _http_json(OLLAMA_HOST + "/api/chat", payload=payload)
     return data.get("message") or {}
+
+
+# ---------------------------------------------------------------------------
+# Extraction — the one place this app asks a model for structured data rather
+# than a tool call or a sentence.
+#
+# Both backends can be pinned to JSON (OpenAI's response_format, Ollama's
+# "format": "json"), which removes the usual "strip the ```json fence" dance.
+# What it does NOT remove is the need to distrust the result: a model that
+# reliably returns *valid* JSON will still happily invent a field name. The
+# caller (modules/capture) validates every key against an allow-list before
+# any of it reaches the database, so the worst a hallucination can do here is
+# get dropped.
+# ---------------------------------------------------------------------------
+
+
+def complete_json(system: str, user_text: str, *, max_tokens: int = 2000) -> dict:
+    """Ask the configured backend for a JSON object and return it parsed.
+
+    Raises LLMError for an unreachable backend, an HTTP failure, or a reply
+    that isn't a JSON object — callers surface that to the user rather than
+    silently producing an empty result, because "the AI is not configured" and
+    "the AI found nothing in your text" need to read differently."""
+    key = _openai_key()
+    convo = [{"role": "system", "content": system}, {"role": "user", "content": user_text}]
+    if key:
+        msg = _post_openai(convo, tools=None, key=key, json_mode=True, max_tokens=max_tokens)
+    else:
+        msg = _post_ollama(convo, tools=None, json_mode=True, max_tokens=max_tokens)
+    raw = (msg.get("content") or "").strip()
+    if not raw:
+        raise LLMError("The model returned an empty response.")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        # json_mode should make this unreachable, but a local model served
+        # through a shim may ignore the flag. One salvage attempt on the
+        # outermost braces beats failing the whole capture.
+        start, end = raw.find("{"), raw.rfind("}")
+        if start == -1 or end <= start:
+            raise LLMError("The model didn't return JSON.")
+        try:
+            parsed = json.loads(raw[start : end + 1])
+        except json.JSONDecodeError:
+            raise LLMError("The model didn't return JSON.")
+    if not isinstance(parsed, dict):
+        raise LLMError("The model returned JSON, but not an object.")
+    return parsed
 
 
 class _NeedsConfirmation:

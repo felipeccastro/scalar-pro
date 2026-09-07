@@ -471,3 +471,37 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 def slugify(text: str) -> str:
     slug = _SLUG_RE.sub("-", (text or "").strip().lower()).strip("-")
     return slug or "item"
+
+
+# ---------------------------------------------------------------------------
+# Form parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_date(value: str | None) -> "datetime.date | None":
+    """`<input type="date">` value to a date, or None.
+
+    Returns None for anything unparseable rather than raising: these come from
+    forms and from AI-extracted proposals, and an unreadable date should leave
+    the field empty, not 500 the request."""
+    import datetime
+
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def parse_int(value: str | None) -> int | None:
+    """Form field to an int, or None if blank/unparseable. Used for the
+    optional-FK selects, where "" means "no relation"."""
+    text = str(value or "").strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None

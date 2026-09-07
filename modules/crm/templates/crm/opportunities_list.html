@@ -1,0 +1,96 @@
+%rebase('layout', title='Opportunities', back_url=url_for('dashboard'))
+<div class="page-header">
+  <h1>Opportunities</h1>
+  <button type="button" class="btn btn-primary" commandfor="new-deal-dialog" command="show-modal">+ New opportunity</button>
+</div>
+
+<form method="get" action="{{url_for('opportunities_list')}}" class="search-form">
+  <input type="search" name="q" value="{{q}}" placeholder="Search opportunities…">
+  <button class="btn" type="submit">Search</button>
+  %if q:
+    <a class="btn-link" href="{{url_for('opportunities_list')}}">Clear</a>
+  %end
+</form>
+
+<dialog id="new-deal-dialog">
+  <div class="dialog-head">
+    <span class="dialog-title">New opportunity</span>
+    <button type="button" class="dialog-close" commandfor="new-deal-dialog" command="close" aria-label="Close">✕</button>
+  </div>
+  <form method="post" action="{{url_for('opportunities_create')}}">
+    <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
+    <div class="dialog-body inline-form">
+      <input type="text" name="title" placeholder="What's the deal?" required autofocus>
+      <select name="customer_id">
+        <option value="">No customer</option>
+        %for c in clients:
+          <option value="{{c.id}}">{{c.name}}</option>
+        %end
+      </select>
+      <input type="number" name="value" placeholder="Value" min="0" step="1000">
+      <select name="stage">
+        %for s in stages:
+          <option value="{{s}}">{{status_label(s)}}</option>
+        %end
+      </select>
+      <select name="owner_id">
+        <option value="">No owner</option>
+        %for p in people:
+          <option value="{{p.id}}">{{p.name}}</option>
+        %end
+      </select>
+      <input type="text" name="next_action" placeholder="Next action">
+      <input type="date" name="next_action_due" aria-label="Next action due">
+      <textarea name="notes" placeholder="Notes"></textarea>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn" commandfor="new-deal-dialog" command="close">Cancel</button>
+      <button class="btn btn-primary" type="submit">Add opportunity</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="pipeline">
+  <div class="kanban">
+    %for s in stages:
+      %deals = grouped[s]
+      %total = sum(d.value for d in deals)
+      <div class="kanban-col">
+        <h3>
+          <span class="status-dot status-dot-{{s}}"></span>{{status_label(s)}}
+          <span class="badge">{{len(deals)}}</span>
+          %if total:
+            <span class="pipeline-total">{{insights.money_short(total)}}</span>
+          %end
+        </h3>
+        <div class="kanban-col-body">
+          %for d in deals:
+            <div class="kanban-card kanban-card-{{s}}">
+              <a class="kanban-card-link" href="{{url_for('opportunity_detail', opportunity_id=d.id)}}">
+                <div class="kanban-card-title">{{d.customer.name if d.customer_id else d.title}}</div>
+                <div class="kanban-card-meta">
+                  <span class="deal-value">{{insights.money(d.value)}}</span>
+                  %if d.customer_id:
+                    · {{d.title}}
+                  %end
+                  %if d.next_action:
+                    %late = d.next_action_due and d.next_action_due < insights.today()
+                    <span class="deal-next {{'is-late' if late else ''}}">
+                      {{d.next_action}}{{' · ' + insights.due_phrase(d.next_action_due) if d.next_action_due else ''}}
+                    </span>
+                  %end
+                  %if not d.owner_id:
+                    <span class="deal-next is-late">No owner</span>
+                  %end
+                </div>
+              </a>
+            </div>
+          %end
+          %if not deals:
+            <p class="muted">Nothing at this stage.</p>
+          %end
+        </div>
+      </div>
+    %end
+  </div>
+</div>

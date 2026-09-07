@@ -1,0 +1,39 @@
+%rebase('layout', title='Notes', back_url=url_for('dashboard'))
+<div class="page-header">
+  <h1>Notes</h1>
+  <a class="button btn btn-primary" href="{{url_for('dashboard')}}#capture">Capture something</a>
+</div>
+
+<form method="get" action="{{url_for('notes_list')}}" class="search-form">
+  <input type="search" name="q" value="{{q}}" placeholder="Search notes…">
+  <button class="btn" type="submit">Search</button>
+  %if q:
+    <a class="btn-link" href="{{url_for('notes_list')}}">Clear</a>
+  %end
+</form>
+
+<table class="data-table">
+  <thead><tr><th>Note</th><th>Author</th><th>Date</th><th>Records</th></tr></thead>
+  <tbody>
+    %for n in notes:
+      <tr onclick="location.href='{{url_for('note_detail', note_id=n.id)}}'">
+        <td>{{n.title or 'Untitled'}}</td>
+        <td class="muted">{{n.author.name if n.author_id else '—'}}</td>
+        <td class="nowrap muted">{{n.occurred_on.strftime('%b %-d, %Y') if n.occurred_on else n.created_at.strftime('%b %-d, %Y')}}</td>
+        <td>
+          %count = len(n.links)
+          %if n.proposal_json:
+            <span class="badge badge-under_review"><i class="dot"></i>Awaiting review</span>
+          %elif count:
+            {{count}}
+          %else:
+            <span class="muted">—</span>
+          %end
+        </td>
+      </tr>
+    %end
+    %if not notes:
+      <tr><td colspan="4" class="muted">No notes yet. Paste one into Capture on the dashboard.</td></tr>
+    %end
+  </tbody>
+</table>
