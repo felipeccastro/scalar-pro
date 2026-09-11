@@ -36,7 +36,6 @@ from utils import (
     parse_int,
     record_activity,
     redirect,
-    require_login,
     url_for,
 )
 import insights
@@ -51,7 +50,6 @@ def _touch(project: Project) -> None:
 
 
 @app.route("/projects", method="GET", name="projects_list")
-@require_login
 def projects_list():
     q = (request.query.get("q") or "").strip()
     query = Project.select().where(Project.archived_at.is_null(True))
@@ -85,7 +83,6 @@ def _progress(project: Project) -> dict:
 
 
 @app.route("/projects", method="POST", name="projects_create")
-@require_login
 def projects_create():
     name = (request.forms.get("name") or "").strip()
     if not name:
@@ -107,7 +104,6 @@ def projects_create():
 
 
 @app.route("/projects/<project_id:int>", method="GET", name="project_detail")
-@require_login
 def project_detail(project_id: int):
     project = Project.get_or_none(Project.id == project_id)
     if project is None:
@@ -137,7 +133,6 @@ def project_detail(project_id: int):
 
 
 @app.route("/projects/<project_id:int>", method="POST", name="project_update")
-@require_login
 def project_update(project_id: int):
     project = Project.get_or_none(Project.id == project_id)
     if project is None:
@@ -165,7 +160,6 @@ def project_update(project_id: int):
 
 
 @app.route("/projects/<project_id:int>/archive", method="POST", name="project_archive")
-@require_login
 def project_archive(project_id: int):
     project = Project.get_or_none(Project.id == project_id)
     if project is not None:
@@ -187,7 +181,6 @@ FILTERS = ("open", "overdue", "mine", "done", "all")
 
 
 @app.route("/commitments", method="GET", name="commitments_list")
-@require_login
 def commitments_list():
     active = request.query.get("filter") or "open"
     if active not in FILTERS:
@@ -227,7 +220,6 @@ def _current_person():
 
 
 @app.route("/commitments", method="POST", name="commitments_create")
-@require_login
 def commitments_create():
     description = (request.forms.get("description") or "").strip()
     if not description:
@@ -250,7 +242,6 @@ def commitments_create():
 
 
 @app.route("/commitments/<commitment_id:int>/status", method="POST", name="commitment_status")
-@require_login
 def commitment_status(commitment_id: int):
     """One-click done/reopen from the list. Kept separate from a full update
     so the common action — ticking something off — is one button and not a

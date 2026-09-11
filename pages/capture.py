@@ -17,7 +17,7 @@ from bottle import request
 from app import app, render
 from models import Decision, Note, NoteLink, Person
 from pages.core import _load_activity, _load_comments
-from utils import current_user, flash, record_activity, redirect, require_login, url_for
+from utils import current_user, flash, record_activity, redirect, url_for
 import ai
 import insights
 import search
@@ -32,7 +32,6 @@ NO_BACKEND = (
 
 
 @app.route("/capture", method="POST", name="capture_read")
-@require_login
 def capture_read():
     """Read a pasted note: store the text, ask the model what's in it, and
     send the user back to the dashboard showing the proposal.
@@ -73,7 +72,6 @@ def capture_read():
 
 
 @app.route("/capture/<note_id:int>/confirm", method="POST", name="capture_confirm")
-@require_login
 def capture_confirm(note_id: int):
     note = Note.get_or_none(Note.id == note_id)
     if note is None:
@@ -95,7 +93,6 @@ def capture_confirm(note_id: int):
 
 
 @app.route("/capture/<note_id:int>/discard", method="POST", name="capture_discard")
-@require_login
 def capture_discard(note_id: int):
     """Throw away the proposal, keep the note. Text is never the thing we
     discard."""
@@ -114,7 +111,6 @@ def capture_discard(note_id: int):
 
 
 @app.route("/notes", method="GET", name="notes_list")
-@require_login
 def notes_list():
     q = (request.query.get("q") or "").strip()
     query = Note.select()
@@ -128,7 +124,6 @@ def notes_list():
 
 
 @app.route("/notes/<note_id:int>", method="GET", name="note_detail")
-@require_login
 def note_detail(note_id: int):
     note = Note.get_or_none(Note.id == note_id)
     if note is None:
@@ -156,7 +151,6 @@ def note_detail(note_id: int):
 
 
 @app.route("/decisions", method="GET", name="decisions_list")
-@require_login
 def decisions_list():
     q = (request.query.get("q") or "").strip()
     query = Decision.select()

@@ -169,6 +169,17 @@ will write". Widen it deliberately, never by adding a passthrough.
   `subject_type` to its model, detail route and label — the post-comment
   redirect, the activity feed and the note's linked-records list all resolve
   through it.
+- **Every route requires a logged-in user by default** — enforced by a
+  `before_request` hook (`_require_login_hook` in `pages/core.py`), not a
+  per-route decorator. A new route needs *no* annotation to be protected.
+  If it must be reachable by a signed-out visitor (a new auth-flow page,
+  say), add its `name=` to `PUBLIC_ROUTES` in `utils.py` — forgetting this
+  for a route that's supposed to be public shows up immediately as an
+  unwanted redirect to `/login`, so it's a load-bearing list, not
+  optional bookkeeping. A route with its own non-session auth (like
+  `/internal/ai-command`'s `require_internal_secret`) goes in
+  `SESSION_INDEPENDENT_PATHS` instead, keyed by path since it's checked
+  before routing.
 - **Two owner columns on `Task`, on purpose.** `owner` is a `Person` (Pro's
   forms and dashboards use it; it can point at someone with no account).
   `assignee` is Core's `User` and is what the notification path keys off;

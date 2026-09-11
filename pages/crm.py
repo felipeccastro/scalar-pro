@@ -28,7 +28,6 @@ from utils import (
     parse_int,
     record_activity,
     redirect,
-    require_login,
     url_for,
 )
 import insights
@@ -46,7 +45,6 @@ def _touch(opportunity: Opportunity) -> None:
 
 
 @app.route("/opportunities", method="GET", name="opportunities_list")
-@require_login
 def opportunities_list():
     q = (request.query.get("q") or "").strip()
     query = Opportunity.select().where(Opportunity.archived_at.is_null(True))
@@ -68,7 +66,6 @@ def opportunities_list():
 
 
 @app.route("/opportunities", method="POST", name="opportunities_create")
-@require_login
 def opportunities_create():
     title = (request.forms.get("title") or "").strip()
     if not title:
@@ -92,7 +89,6 @@ def opportunities_create():
 
 
 @app.route("/opportunities/<opportunity_id:int>", method="GET", name="opportunity_detail")
-@require_login
 def opportunity_detail(opportunity_id: int):
     opportunity = Opportunity.get_or_none(Opportunity.id == opportunity_id)
     if opportunity is None:
@@ -113,7 +109,6 @@ def opportunity_detail(opportunity_id: int):
 
 
 @app.route("/opportunities/<opportunity_id:int>", method="POST", name="opportunity_update")
-@require_login
 def opportunity_update(opportunity_id: int):
     opportunity = Opportunity.get_or_none(Opportunity.id == opportunity_id)
     if opportunity is None:
@@ -143,7 +138,6 @@ def opportunity_update(opportunity_id: int):
 
 
 @app.route("/opportunities/<opportunity_id:int>/archive", method="POST", name="opportunity_archive")
-@require_login
 def opportunity_archive(opportunity_id: int):
     opportunity = Opportunity.get_or_none(Opportunity.id == opportunity_id)
     if opportunity is not None:
@@ -160,7 +154,6 @@ def opportunity_archive(opportunity_id: int):
 
 
 @app.route("/people", method="GET", name="people_list")
-@require_login
 def people_list():
     people = list(Person.select().order_by(Person.active.desc(), Person.name))
     # What each person is actually carrying. The directory is only useful
@@ -185,7 +178,6 @@ def people_list():
 
 
 @app.route("/people", method="POST", name="people_create")
-@require_login
 def people_create():
     name = (request.forms.get("name") or "").strip()
     if not name:
@@ -202,7 +194,6 @@ def people_create():
 
 
 @app.route("/people/<person_id:int>", method="POST", name="person_update")
-@require_login
 def person_update(person_id: int):
     person = Person.get_or_none(Person.id == person_id)
     if person is None:

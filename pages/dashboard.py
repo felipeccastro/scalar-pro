@@ -17,7 +17,7 @@ from bottle import request
 
 from app import app, render
 from models import Note
-from utils import require_login, current_user
+from utils import current_user
 import insights
 
 
@@ -43,7 +43,6 @@ def _capture_panel() -> dict:
 
 
 @app.route("/", method="GET", name="dashboard")
-@require_login
 def dashboard():
     user = current_user()
     attention = insights.attention_rows()
@@ -63,7 +62,6 @@ def dashboard():
 
 
 @app.route("/control", method="GET", name="control")
-@require_login
 def control():
     return render(
         "dashboard/control.html",

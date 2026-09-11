@@ -13,7 +13,7 @@ import os
 import secrets
 import uuid
 
-from bottle import request, response
+from bottle import HTTPError, request, response
 
 from app import app, render
 from models import (
@@ -48,6 +48,8 @@ from seed import seed_demo_data
 from utils import (
     Mailer,
     MailerError,
+    PUBLIC_ROUTES,
+    SESSION_INDEPENDENT_PATHS,
     abort,
     any_team_members_exist,
     current_user,
@@ -62,7 +64,6 @@ from utils import (
     record_activity,
     redirect,
     require_internal_secret,
-    require_login,
     require_role,
     slugify,
     team_member,
@@ -87,6 +88,38 @@ def _bootstrap_redirect() -> None:
         return
     if not any_team_members_exist():
         redirect(url_for("register_owner"))
+
+
+@app.hook("before_request")
+def _require_login_hook() -> None:
+    """Every route requires a logged-in user by default — the opposite of a
+    per-route @require_login decorator, which is easy to forget on a new
+    route and silently leave unprotected. PUBLIC_ROUTES (utils.py) lists
+    the handful of routes a signed-out visitor genuinely needs to reach
+    (register, login, accept-invite, forgot/reset password); everything
+    else redirects to /login.
+
+    Registered *after* _bootstrap_redirect above — before_request hooks run
+    in registration order (see Bottle's add_hook) — so a fresh, team-less
+    instance always lands on /register first, before this hook gets a
+    chance to bounce it to /login instead.
+
+    Resolves the route itself via app.match() rather than checking
+    request.route: before_request hooks fire *before* Bottle's own routing
+    (see utils.py's SESSION_INDEPENDENT_PATHS comment), so there's no route
+    to inspect yet at this point otherwise. match() is a plain, read-only
+    lookup (see Router.match) — cheap to do twice per request.
+    """
+    if request.path.startswith("/static/") or request.path in SESSION_INDEPENDENT_PATHS:
+        return
+    try:
+        route, _ = app.match(request.environ)
+    except HTTPError:
+        return  # a 404/405 — let Bottle's own routing surface that normally
+    if route.name in PUBLIC_ROUTES:
+        return
+    if current_user() is None:
+        redirect(url_for("login"))
 
 
 def _load_comments(subject_type: str, subject_id: int) -> list[Comment]:
@@ -201,14 +234,12 @@ def login_submit():
 
 
 @app.route("/logout", method="POST", name="logout")
-@require_login
 def logout():
     logout_user()
     redirect(url_for("login"))
 
 
 @app.route("/invite", method="POST", name="invite_teammate")
-@require_login
 @require_role("admin")
 def invite_teammate():
     email = (request.forms.get("email") or "").strip().lower()
@@ -335,7 +366,6 @@ def reset_password_submit(token: str):
 
 
 @app.route("/clients", method="GET", name="clients_list")
-@require_login
 def clients_list():
     q = (request.query.get("q") or "").strip()
     query = Client.select().where(Client.archived_at.is_null(True))
@@ -348,7 +378,6 @@ def clients_list():
 
 
 @app.route("/clients", method="POST", name="clients_create")
-@require_login
 def clients_create():
     name = (request.forms.get("name") or "").strip()
     if not name:
@@ -370,7 +399,6 @@ def clients_create():
 
 
 @app.route("/clients/<client_id:int>", method="GET", name="client_detail")
-@require_login
 def client_detail(client_id: int):
     client = Client.select().where(Client.id == client_id).first()
     if client is None:
@@ -412,7 +440,6 @@ def client_detail(client_id: int):
 
 
 @app.route("/clients/<client_id:int>", method="POST", name="client_update")
-@require_login
 def client_update(client_id: int):
     client = Client.select().where(Client.id == client_id).first()
     if client is None:
@@ -433,7 +460,6 @@ def client_update(client_id: int):
 
 
 @app.route("/clients/<client_id:int>/archive", method="POST", name="client_archive")
-@require_login
 def client_archive(client_id: int):
     client = Client.select().where(Client.id == client_id).first()
     if client is not None:
@@ -454,7 +480,6 @@ def _active_clients() -> list[Client]:
 
 
 @app.route("/tasks", method="GET", name="tasks_list")
-@require_login
 def tasks_list():
     q = (request.query.get("q") or "").strip()
     query = Task.select().where(Task.archived_at.is_null(True))
@@ -487,7 +512,6 @@ def _assignee_for(person: Person | None) -> User | None:
 
 
 @app.route("/tasks", method="POST", name="tasks_create")
-@require_login
 def tasks_create():
     title = (request.forms.get("title") or "").strip()
     if not title:
@@ -518,7 +542,6 @@ def tasks_create():
 
 
 @app.route("/tasks/<task_id:int>", method="GET", name="task_detail")
-@require_login
 def task_detail(task_id: int):
     task = Task.select().where(Task.id == task_id).first()
     if task is None:
@@ -540,7 +563,6 @@ def task_detail(task_id: int):
 
 
 @app.route("/tasks/<task_id:int>", method="POST", name="task_update")
-@require_login
 def task_update(task_id: int):
     task = Task.select().where(Task.id == task_id).first()
     if task is None:
@@ -574,7 +596,6 @@ def task_update(task_id: int):
 
 
 @app.route("/tasks/reorder", method="POST", name="tasks_reorder")
-@require_login
 def tasks_reorder():
     """Drag-and-drop endpoint for the /tasks board (see the script at the
     bottom of tasks_list.html). The board sends the *entire*, freshly
@@ -604,7 +625,6 @@ def tasks_reorder():
 
 
 @app.route("/tasks/<task_id:int>/archive", method="POST", name="task_archive")
-@require_login
 def task_archive(task_id: int):
     task = Task.select().where(Task.id == task_id).first()
     if task is not None:
@@ -628,7 +648,6 @@ def _redirect_to_subject(subject_type: str, subject_id: int):
 
 
 @app.route("/comments", method="POST", name="comment_create")
-@require_login
 def comment_create():
     subject_type = request.forms.get("subject_type") or ""
     subject_id = int(request.forms.get("subject_id") or 0)
@@ -647,7 +666,6 @@ def comment_create():
 
 
 @app.route("/comments/<comment_id:int>/delete", method="POST", name="comment_delete")
-@require_login
 def comment_delete(comment_id: int):
     comment = Comment.select().where(Comment.id == comment_id).first()
     if comment is not None:
@@ -669,7 +687,6 @@ def comment_delete(comment_id: int):
 
 
 @app.route("/attachments", method="POST", name="attachment_upload")
-@require_login
 def attachment_upload():
     subject_type = request.forms.get("subject_type") or ""
     subject_id = int(request.forms.get("subject_id") or 0)
@@ -703,7 +720,6 @@ def attachment_upload():
 
 
 @app.route("/attachments/<attachment_id:int>", method="GET", name="attachment_download")
-@require_login
 def attachment_download(attachment_id: int):
     from bottle import static_file
 
@@ -714,7 +730,6 @@ def attachment_download(attachment_id: int):
 
 
 @app.route("/attachments/<attachment_id:int>/delete", method="POST", name="attachment_delete")
-@require_login
 def attachment_delete(attachment_id: int):
     attachment = Attachment.select().where(Attachment.id == attachment_id).first()
     if attachment is not None:
@@ -734,7 +749,6 @@ def attachment_delete(attachment_id: int):
 
 
 @app.route("/notifications", method="GET", name="notifications_list")
-@require_login
 def notifications_list():
     notifications = list(
         Notification.select().where(Notification.user == current_user()).order_by(Notification.created_at.desc())
@@ -743,7 +757,6 @@ def notifications_list():
 
 
 @app.route("/notifications/<notification_id:int>/read", method="POST", name="notification_read")
-@require_login
 def notification_read(notification_id: int):
     n = Notification.select().where(
         (Notification.id == notification_id) & (Notification.user == current_user())
@@ -755,7 +768,6 @@ def notification_read(notification_id: int):
 
 
 @app.route("/notifications/read-all", method="POST", name="notifications_read_all")
-@require_login
 def notifications_read_all():
     Notification.update(read_at=datetime.datetime.now()).where(
         (Notification.user == current_user()) & (Notification.read_at.is_null(True))
@@ -769,7 +781,6 @@ def notifications_read_all():
 
 
 @app.route("/settings", method="GET", name="settings")
-@require_login
 def settings_page():
     member = team_member()
     return render(
@@ -781,7 +792,6 @@ def settings_page():
 
 
 @app.route("/settings/password", method="POST", name="settings_password")
-@require_login
 def settings_password():
     # Redirects target the #change-password <details> fragment — browsers
     # auto-expand a <details> containing the :target element, so the form
@@ -809,7 +819,6 @@ def settings_password():
 
 
 @app.route("/chat", method="GET", name="chat")
-@require_login
 def chat_page():
     thread = ChatThread.select().where(ChatThread.user == current_user()).first()
     messages = list(ChatMessage.select().where(ChatMessage.thread == thread).order_by(ChatMessage.id)) if thread else []
@@ -822,7 +831,6 @@ def chat_page():
 
 
 @app.route("/chat", method="POST", name="chat_send")
-@require_login
 def chat_send():
     text = (request.forms.get("message") or "").strip()
     if text:
@@ -838,7 +846,6 @@ def chat_send():
 
 
 @app.route("/chat/confirm", method="POST", name="chat_confirm")
-@require_login
 def chat_confirm():
     thread, _ = ChatThread.get_or_create(user=current_user())
     try:
@@ -851,7 +858,6 @@ def chat_confirm():
 
 
 @app.route("/chat/cancel", method="POST", name="chat_cancel")
-@require_login
 def chat_cancel():
     thread, _ = ChatThread.get_or_create(user=current_user())
     try:
@@ -922,7 +928,6 @@ def ai_command():
 
 
 @app.route("/search/palette", method="GET", name="search_palette")
-@require_login
 def search_palette():
     q = (request.query.get("q") or "").strip()
     hits = search.search(q, limit=10) if q else []
