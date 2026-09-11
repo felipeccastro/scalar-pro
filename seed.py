@@ -37,6 +37,7 @@ from models import (
     Task,
     User,
 )
+import search
 
 TODAY = datetime.date.today
 
@@ -343,7 +344,7 @@ def _by_name(rows: dict, name: str | None):
 
 def seed_demo_data(owner: User) -> None:
     """Populate a fresh instance. Called once, right after the first owner
-    registers (pages.py: register_owner_submit) — not from ensure_schema(),
+    registers (pages/core.py: register_owner_submit) — not from ensure_schema(),
     since it needs a real User to attribute rows to.
 
     Idempotent by refusing to run twice: if there's already a Person, assume
@@ -425,6 +426,12 @@ def seed_demo_data(owner: User) -> None:
 
     _link_notes(notes, customers, projects)
     _seed_activity(owner, customers, projects)
+
+    # search_index is still empty at this point — app.py's startup backfill
+    # ran against an instance that had no rows yet (registration, and this
+    # seed, both happen from a request, after startup). Calling the same
+    # idempotent-if-empty backfill again now is what actually populates it.
+    search.backfill_if_empty()
 
 
 def _link_notes(notes: list[Note], customers: dict, projects: dict) -> None:

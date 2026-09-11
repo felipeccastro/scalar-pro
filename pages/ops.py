@@ -1,9 +1,9 @@
 """Operations: projects and the promises people made.
 
-Tasks stay in the top-level pages.py (they're Core's, and the kanban board
-belongs with them). This module owns the two things that make tasks
-legible at company scale: the project they belong to, and the commitment
-someone made about them.
+Tasks stay in pages/core.py (they're Core's, and the kanban board belongs
+with them). This file owns the two things that make tasks legible at
+company scale: the project they belong to, and the commitment someone made
+about them.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from models import (
     PROJECT_STATUSES,
     Task,
 )
-from pages import (
+from pages.core import (
     _active_clients,
     _linked_notes,
     _load_activity,
@@ -40,6 +40,7 @@ from utils import (
     url_for,
 )
 import insights
+import search
 
 
 def _touch(project: Project) -> None:
@@ -100,6 +101,7 @@ def projects_create():
         created_by=current_user(),
     )
     record_activity("project", project.id, current_user(), "created")
+    search.index_entity(project)
     flash(f"Added {project.name}.", "success")
     redirect(url_for("project_detail", project_id=project.id))
 
@@ -157,6 +159,7 @@ def project_update(project_id: int):
         )
     else:
         record_activity("project", project.id, current_user(), "updated")
+    search.index_entity(project)
     flash("Project updated.", "success")
     redirect(url_for("project_detail", project_id=project.id))
 
@@ -241,6 +244,7 @@ def commitments_create():
         created_by=current_user(),
     )
     record_activity("commitment", commitment.id, current_user(), "created")
+    search.index_entity(commitment)
     flash("Commitment recorded.", "success")
     redirect(url_for("commitments_list"))
 

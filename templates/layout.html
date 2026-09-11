@@ -54,14 +54,19 @@
         </label>
       </div>
       <nav class="sidebar-nav">
+        <a href="#" class="nav-link" data-palette-open>
+          <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Search
+          <span class="nav-kbd">⌘K</span>
+        </a>
         <div class="nav-section">Today</div>
         <a class="nav-link {{'active' if request.path == '/' else ''}}" href="{{url_for('dashboard')}}">
           <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M9.5 19V4M15 19v-7M20.5 19v-4"/></svg>
           Dashboard
         </a>
-        <a class="nav-link {{'active' if request.path.startswith('/cracks') else ''}}" href="{{url_for('cracks')}}">
+        <a class="nav-link {{'active' if request.path.startswith('/control') else ''}}" href="{{url_for('control')}}">
           <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l-2.5 6.5L3 12l6.5 2.5L12 21l2.5-6.5L21 12l-6.5-2.5z"/></svg>
-          Cracks
+          Control
         </a>
         <div class="nav-section">Pipeline</div>
         <a class="nav-link {{'active' if request.path.startswith('/clients') else ''}}" href="{{url_for('clients_list')}}">
@@ -127,6 +132,117 @@
       {{!base}}
     </main>
   </div>
+
+  <!-- Quick search — same technique as admin's command palette: a bare
+       <dialog> (oat.css themes it as a centered modal + backdrop already),
+       populated by plain fetch()+innerHTML against /search/palette, no
+       framework. See search.py and pages/core.py's search_palette(). -->
+  <dialog id="cmd-palette" class="cmd-palette">
+    <input type="search" id="cmd-palette-input"
+           placeholder="Search everything…"
+           autocomplete="off"
+           data-palette-endpoint="{{url_for('search_palette')}}">
+    <ul id="cmd-palette-results"></ul>
+  </dialog>
+  <script>
+    (() => {
+      const dialog = document.getElementById('cmd-palette');
+      const input = document.getElementById('cmd-palette-input');
+      const list = document.getElementById('cmd-palette-results');
+      const endpoint = input.dataset.paletteEndpoint;
+      let debounce;
+      // The currently-highlighted row, kept as a plain array index rather
+      // than re-querying the DOM on every key press. Rebuilt whenever
+      // fetchResults() swaps the list's innerHTML in.
+      let rows = [];
+      let selected = -1;
+
+      function open() {
+        if (dialog.open) return;
+        dialog.showModal();
+        input.value = '';
+        fetchResults('');
+        input.focus();
+      }
+
+      function select(index) {
+        if (selected >= 0 && rows[selected]) rows[selected].classList.remove('is-selected');
+        selected = index;
+        if (selected >= 0 && rows[selected]) {
+          rows[selected].classList.add('is-selected');
+          rows[selected].scrollIntoView({ block: 'nearest' });
+        }
+      }
+
+      function fetchResults(q) {
+        fetch(endpoint + '?q=' + encodeURIComponent(q))
+          .then(r => r.text())
+          .then(html => {
+            list.innerHTML = html;
+            rows = Array.from(list.querySelectorAll('a.palette-row'));
+            // Land on the first hit so Enter works immediately without
+            // having to press an arrow key first.
+            select(rows.length ? 0 : -1);
+          });
+      }
+
+      input.addEventListener('input', () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(() => fetchResults(input.value), 120);
+      });
+
+      // Up/Down move the highlight (wrapping at both ends); Enter opens
+      // whichever row is currently highlighted.
+      input.addEventListener('keydown', e => {
+        if (e.key === 'ArrowDown') {
+          if (!rows.length) return;
+          e.preventDefault();
+          select((selected + 1) % rows.length);
+        } else if (e.key === 'ArrowUp') {
+          if (!rows.length) return;
+          e.preventDefault();
+          select((selected - 1 + rows.length) % rows.length);
+        } else if (e.key === 'Enter') {
+          const target = rows[selected] || rows[0];
+          if (!target) return;
+          e.preventDefault();
+          target.click();
+        }
+      });
+
+      // Hovering a row with the mouse moves the highlight there too, so
+      // switching between mouse and keyboard never leaves two rows lit.
+      list.addEventListener('mousemove', e => {
+        const row = e.target.closest('a.palette-row');
+        if (!row) return;
+        const index = rows.indexOf(row);
+        if (index !== selected) select(index);
+      });
+
+      // ⌘K / Ctrl-K opens from anywhere on the page; Esc closes it for free
+      // (native <dialog> behavior) without fighting the page's own
+      // Esc-navigates-back handler below, since that one bails out whenever
+      // a <dialog> is open.
+      document.addEventListener('keydown', e => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          open();
+        }
+      });
+
+      // Sidebar "Search" link opens the palette on a plain click; a
+      // modified click (middle-click, Cmd/Ctrl-click) is left alone.
+      document.querySelectorAll('[data-palette-open]').forEach(el => {
+        el.addEventListener('click', e => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          open();
+        });
+      });
+
+      // Clicking a result navigates via its href — nothing else to do.
+    })();
+  </script>
 %else:
   <div class="auth-shell">
     <div class="auth-brand">

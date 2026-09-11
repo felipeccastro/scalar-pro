@@ -12,12 +12,12 @@ import json
 import os
 import sys
 
-# pages.py does `from app import app` so every route can be declared as
+# pages/*.py each do `from app import app` so every route can be declared as
 # `@app.route(...)` without a blueprint indirection. If this file is ever
 # launched directly (`python3 app.py`), Python runs it as `__main__` — and
 # that `from app import app` would otherwise import a *second*, separate
 # copy of this module under the name "app", with its own fresh Bottle()
-# instance that never sees any of pages.py's routes (the one actually
+# instance that never sees any of pages/*.py's routes (the one actually
 # passed to run() below would then only have the routes registered above
 # this point). Aliasing "app" to the already-running module up front makes
 # the later self-import a no-op lookup instead of a second execution.
@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "ven
 
 from bottle import Bottle, HTTPError, debug as _bottle_debug, request, run, static_file, template
 
+import search
 from models import db, ensure_schema, status_label
 from utils import (
     csrf_protect,
@@ -67,6 +68,10 @@ _load_dotenv()
 # runs no matter which entrypoint starts the process (dev server or
 # gunicorn's `app:app`). Idempotent: safe to call on every process start.
 ensure_schema()
+# Covers an instance that already had data before this feature shipped;
+# search_index otherwise stays empty until something writes to it. No-op on
+# a fresh install (nothing exists yet to backfill) — see search.py.
+search.backfill_if_empty()
 
 DEBUG = os.environ.get("DEBUG", "1") == "1"
 # Set at module level (not just under `if __name__ == '__main__'`) so it
@@ -156,7 +161,7 @@ def _open_session_hook() -> None:
 @app.hook("before_request")
 def _csrf_protect_hook() -> None:
     # Static assets are served by Bottle's own static_file handler further
-    # down and never mutate anything, so this only ever fires for pages.py
+    # down and never mutate anything, so this only ever fires for pages/*.py
     # routes — but it still runs before routing (see bottle's _handle), so it
     # applies uniformly to every non-GET request regardless of path.
     if request.path.startswith("/static/"):
@@ -232,18 +237,15 @@ def _server_error(_error: HTTPError):
         )
 
 
-# Route registration lives in pages.py, imported for its side effects only —
-# every view there does `from app import app` and decorates directly (no
-# blueprints, to keep the whole app in one flat file per the file-count
-# budget). Must be imported after `app`/`render`/hooks exist above.
-import pages  # noqa: E402,F401
+# Route registration lives in pages/, imported for its side effects only —
+# every view does `from app import app` and decorates directly (no
+# blueprints, to keep the whole app in flat files per the file-count
+# budget). core.py must be imported first: dashboard.py/crm.py/ops.py/
+# capture.py each import shared helpers from it. Both imports must happen
+# after `app`/`render`/hooks exist above. See pages/__init__.py.
+import pages.core  # noqa: E402,F401
 
-# Pro's feature modules (dashboard, crm, ops, capture) follow the same
-# decorate-on-import pattern; register() adds each one's templates/ to the
-# lookup path and imports its pages. See modules/__init__.py.
-import modules  # noqa: E402
-
-modules.register(_bottle_module.TEMPLATE_PATH)
+pages.register()
 
 
 if __name__ == "__main__":

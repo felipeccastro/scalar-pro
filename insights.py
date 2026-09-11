@@ -55,19 +55,28 @@ ATTENTION_LIMIT = 6
 # Subject registry — the one place that maps a subject_type to its model,
 # detail route and display label. Comment/Attachment/Activity/NoteLink are all
 # generic over (subject_type, subject_id), so anything that has to turn one
-# back into a link or a name goes through here: pages.py's post-comment
+# back into a link or a name goes through here: pages/core.py's post-comment
 # redirect, the activity feed, and the note's "what came out of this" list.
 # ---------------------------------------------------------------------------
 
+#  "badge" is the two-letter mark quick search's palette shows next to a hit
+#  (see search_palette() in pages/core.py) — two letters because a single
+#  initial collides twice over (Customer/Commitment, Person/Project).
+#  "list_query" is an extra query string subject_url() adds when landing on a
+#  list rather than a detail page, for the one case (commitments) where the
+#  list's default filter would otherwise hide the very row being linked to.
 SUBJECT_REGISTRY: dict[str, dict[str, Any]] = {
-    "client": {"model": Client, "route": "client_detail", "kwarg": "client_id", "label": "Customer"},
-    "task": {"model": Task, "route": "task_detail", "kwarg": "task_id", "label": "Task"},
-    "person": {"model": Person, "route": "people_list", "kwarg": None, "label": "Person"},
-    "project": {"model": Project, "route": "project_detail", "kwarg": "project_id", "label": "Project"},
-    "opportunity": {"model": Opportunity, "route": "opportunity_detail", "kwarg": "opportunity_id", "label": "Opportunity"},
-    "commitment": {"model": Commitment, "route": "commitments_list", "kwarg": None, "label": "Commitment"},
-    "decision": {"model": Decision, "route": "decisions_list", "kwarg": None, "label": "Decision"},
-    "note": {"model": Note, "route": "note_detail", "kwarg": "note_id", "label": "Note"},
+    "client": {"model": Client, "route": "client_detail", "kwarg": "client_id", "label": "Customer", "badge": "Cu"},
+    "task": {"model": Task, "route": "task_detail", "kwarg": "task_id", "label": "Task", "badge": "Tk"},
+    "person": {"model": Person, "route": "people_list", "kwarg": None, "label": "Person", "badge": "Pe"},
+    "project": {"model": Project, "route": "project_detail", "kwarg": "project_id", "label": "Project", "badge": "Pr"},
+    "opportunity": {"model": Opportunity, "route": "opportunity_detail", "kwarg": "opportunity_id", "label": "Opportunity", "badge": "Op"},
+    "commitment": {
+        "model": Commitment, "route": "commitments_list", "kwarg": None, "label": "Commitment", "badge": "Cm",
+        "list_query": {"filter": "all"},
+    },
+    "decision": {"model": Decision, "route": "decisions_list", "kwarg": None, "label": "Decision", "badge": "De"},
+    "note": {"model": Note, "route": "note_detail", "kwarg": "note_id", "label": "Note", "badge": "No"},
 }
 
 # Which field on each model reads as its name in a feed or a link.
@@ -81,13 +90,17 @@ _TITLE_FIELD = {
 def subject_url(subject_type: str, subject_id: int) -> str:
     """Best link for a (type, id) pair. Types without a detail page of their
     own (person, commitment, decision) land on their list instead of 404ing —
-    those are §4/§6 work, and a list is a truthful destination in the
-    meantime."""
+    those are §4/§6 work — but with a `#record-<id>` fragment appended, so the
+    list still scrolls to and highlights that one row (see the `:target` rule
+    in style.css) rather than just dropping you on the list in general.
+    `list_query` forces whatever filter would otherwise hide that row (e.g. a
+    done commitment under the list's default "open" filter)."""
     spec = SUBJECT_REGISTRY.get(subject_type)
     if spec is None:
         return url_for("dashboard")
     if spec["kwarg"] is None:
-        return url_for(spec["route"])
+        base = url_for(spec["route"], _query=spec["list_query"]) if "list_query" in spec else url_for(spec["route"])
+        return f"{base}#record-{subject_id}"
     return url_for(spec["route"], **{spec["kwarg"]: subject_id})
 
 
@@ -113,6 +126,11 @@ def subject_name(subject_type: str, subject_id: int) -> str:
 def subject_label(subject_type: str) -> str:
     spec = SUBJECT_REGISTRY.get(subject_type)
     return spec["label"] if spec else subject_type.replace("_", " ").title()
+
+
+def subject_badge(subject_type: str) -> str:
+    spec = SUBJECT_REGISTRY.get(subject_type)
+    return spec["badge"] if spec else subject_type[:2].title()
 
 
 # ---------------------------------------------------------------------------

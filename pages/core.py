@@ -1,6 +1,9 @@
-"""Every route in the app. No blueprints — each view imports `app` directly
-and decorates itself, per the flat-file layout this template app is built to
-(an AI-editing tool needs to hold the whole app in context).
+"""Core's routes: auth, customers, tasks, comments, attachments, chat — plus
+the shared helpers pages/dashboard.py, crm.py, ops.py and capture.py import
+from here (`_load_comments`, `_active_clients`, `_people`, `_open_projects`,
+…). No blueprints — each view imports `app` directly and decorates itself,
+per the flat-file layout this template app is built to (an AI-editing tool
+needs to hold the whole app in context).
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from models import (
 )
 import ai
 import insights
+import search
 from seed import seed_demo_data
 from utils import (
     Mailer,
@@ -57,6 +61,7 @@ from utils import (
     parse_int,
     record_activity,
     redirect,
+    require_internal_secret,
     require_login,
     require_role,
     slugify,
@@ -127,7 +132,7 @@ def _team_members() -> list[dict]:
 
 def _people() -> list[Person]:
     """Everyone who can be handed a piece of work. Shared by every owner
-    select in the app — Pro's modules import this rather than each running
+    select in the app — Pro's page files import this rather than each running
     their own query, so the options are identical everywhere."""
     return list(Person.select().where(Person.active == True).order_by(Person.name))  # noqa: E712
 
@@ -317,7 +322,7 @@ def reset_password_submit(token: str):
 # ---------------------------------------------------------------------------
 # Dashboard
 #
-# `/` lives in modules/dashboard/pages.py, not here — Pro's home screen is the
+# `/` lives in pages/dashboard.py, not here — Pro's home screen is the
 # CEO briefing, and it needs the whole of insights.py. It still registers under
 # the route name "dashboard", so layout.html's nav and every existing
 # url_for("dashboard") keep resolving.
@@ -359,6 +364,7 @@ def clients_create():
         created_by=current_user(),
     )
     record_activity("client", client.id, current_user(), "created")
+    search.index_entity(client)
     flash(f"Added {client.name}.", "success")
     redirect(url_for("client_detail", client_id=client.id))
 
@@ -421,6 +427,7 @@ def client_update(client_id: int):
     client.updated_at = datetime.datetime.now()
     client.save()
     record_activity("client", client.id, current_user(), "updated")
+    search.index_entity(client)
     flash("Client updated.", "success")
     redirect(url_for("client_detail", client_id=client.id))
 
@@ -503,6 +510,7 @@ def tasks_create():
         created_by=current_user(),
     )
     record_activity("task", task.id, current_user(), "created")
+    search.index_entity(task)
     if task.assignee_id and task.assignee_id != current_user().id:
         notify(task.assignee, "assignment", task_id=task.id, task_title=task.title)
     flash(f"Added “{task.title}”.", "success")
@@ -558,6 +566,7 @@ def task_update(task_id: int):
         record_activity("task", task.id, current_user(), "status_changed", old=old_status, new=task.status)
     else:
         record_activity("task", task.id, current_user(), "updated")
+    search.index_entity(task)
     if reassigned and task.assignee_id != current_user().id:
         notify(task.assignee, "assignment", task_id=task.id, task_title=task.title)
     flash("Task updated.", "success")
@@ -629,6 +638,7 @@ def comment_create():
         redirect(url_for("dashboard"))
     Comment.create(subject_type=subject_type, subject_id=subject_id, body=body, author=current_user())
     record_activity(subject_type, subject_id, current_user(), "commented")
+    search.reindex_subject(subject_type, subject_id)
     if subject_type == "task":
         task = Task.select().where(Task.id == subject_id).first()
         if task is not None and task.assignee_id and task.assignee_id != current_user().id:
@@ -644,6 +654,7 @@ def comment_delete(comment_id: int):
         subject_type, subject_id = comment.subject_type, comment.subject_id
         if comment.author_id == current_user().id:
             comment.delete_instance()
+            search.reindex_subject(subject_type, subject_id)
             flash("Comment deleted.", "success")
         else:
             flash("You can only delete your own comments.", "error")
@@ -850,3 +861,78 @@ def chat_cancel():
     except ai.LLMError as e:
         flash(f"The assistant couldn't reply: {e}", "error")
     redirect(url_for("chat"))
+
+
+@app.route("/internal/ai-command", method="POST", name="ai_command")
+@require_internal_secret
+def ai_command():
+    """The admin app's own Ask AI proxies a natural-language instruction
+    here rather than reaching into this app's database directly — this app
+    already has the right tools, validation, and confirmation flow for its
+    own records (see ai.py), so admin's assistant reuses them instead of
+    duplicating them. Authenticated by X-Internal-Secret (this instance's
+    own SECRET_KEY), not a session — see require_internal_secret.
+
+    Unlike the normal chat, a write here is applied immediately rather than
+    paused for a human to confirm in this app's own UI: the admin operator
+    who sent the instruction *is* the confirmation, the same way admin's own
+    Apps write tools (edit_app_code etc.) apply immediately with no separate
+    pause.
+    """
+    body = request.json or {}
+    text = (body.get("instruction") or "").strip()
+    if not text:
+        response.status = 400
+        return {"error": "instruction is required."}
+
+    owner_membership = TeamMember.select().where(TeamMember.role == "owner").first()
+    if owner_membership is None:
+        response.status = 500
+        return {"error": "No owner account found to act as."}
+    actor = owner_membership.user
+
+    try:
+        _, assistant_msg = ai.send_message(actor, text)
+    except ai.PendingActionError:
+        response.status = 409
+        return {"error": "This app's chat already has an action awaiting confirmation — resolve that first."}
+    except ai.LLMError as e:
+        response.status = 502
+        return {"error": str(e)}
+    except ValueError:
+        response.status = 400
+        return {"error": "instruction is required."}
+
+    if assistant_msg is None:
+        # send_message() paused for confirmation — auto-apply it (see the
+        # docstring above) instead of leaving it stuck in this app's own
+        # pending-action slot, where nothing would ever resolve it.
+        thread, _ = ChatThread.get_or_create(user=actor)
+        try:
+            assistant_msg = ai.resolve_pending(thread, approved=True)
+        except ai.LLMError as e:
+            return {"reply": f"The change was applied, but I couldn't get a follow-up reply: {e}"}
+
+    return {"reply": assistant_msg.content if assistant_msg else "(no reply)"}
+
+
+# ---------------------------------------------------------------------------
+# Quick search — the ⌘K command palette (layout.html). See search.py.
+# ---------------------------------------------------------------------------
+
+
+@app.route("/search/palette", method="GET", name="search_palette")
+@require_login
+def search_palette():
+    q = (request.query.get("q") or "").strip()
+    hits = search.search(q, limit=10) if q else []
+    results = []
+    for hit in hits:
+        results.append({
+            "kind": hit.kind,
+            "label": insights.subject_label(hit.kind),
+            "badge": insights.subject_badge(hit.kind),
+            "title": hit.title,
+            "url": insights.subject_url(hit.kind, hit.entity_id),
+        })
+    return render("_palette_results.html", q=q, results=results)

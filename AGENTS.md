@@ -19,30 +19,60 @@ incomplete, the same way you'd treat it as incomplete without the code.
 - If you're unsure whether something is user-visible enough to document,
   document it — a stale README is worse than a slightly over-eager one.
 
+## Keep Ask AI and the MCP server in sync with the app
+
+**Any new record type, field, or mutation added to the UI should get a
+matching tool in `ai.py`, in the same change** — a create/update(/archive)
+tool mirroring the new pages/*.py route's fields and validation exactly, a
+`TOOLS_SCHEMA` entry, a `_DISPATCH` entry, and (if it mutates anything) a
+`_MUTATING_TOOLS` entry plus a `_describe_tool_call` branch for the
+confirmation banner. `SYSTEM_PROMPT` should mention it too. The point of the
+chat assistant and the MCP server is that they're a second way to *use* the
+app, not a smaller subset of it — a feature only reachable by clicking
+through pages/*.py is a feature Ask AI and MCP can't help with.
+
+- `mcp_server.py` needs no matching change for this: it re-exports
+  `ai.TOOLS_SCHEMA`/`ai._execute_tool`/`ai._MUTATING_TOOLS` directly rather
+  than keeping its own copy, so anything added to `ai.py` reaches MCP
+  clients automatically. If you ever find yourself editing
+  `mcp_server.py` to add a tool, stop — it belongs in `ai.py` instead.
+- Read tools (`list_*`, `get_*`, `search`, `get_attention`) execute
+  immediately; write tools always pause for human confirmation (see
+  `_MUTATING_TOOLS` in `ai.py`) — a new mutation is never the exception to
+  that.
+- A record type with no manual create/edit UI yet (Decision, Note — see
+  `insights.subject_url`'s docstring) can still get full write tools in
+  `ai.py`: mirror what the model already validates (required fields, status
+  enums) rather than what a nonexistent form would submit.
+- This is also where a new tool's `search.index_entity(...)` call goes, the
+  same as every other write path — see `search.py`.
+
 ## Where things go
 
-Pro is Core plus four **modules** — plain folders under `modules/`, each with
-a `pages.py` and a `templates/` dir. `modules/__init__.py` adds each one's
-templates to bottle's lookup path and imports its `pages`; routes register
-through the same `@app.route` decorators the top-level `pages.py` uses. Adding
-a module is: create the folder, add its name to `MODULES`.
+Pro is Core plus four page files, all under `pages/` — flat modules, no
+per-feature folders: `pages/dashboard.py`, `crm.py`, `ops.py`, `capture.py`.
+`pages/__init__.py`'s `register()` imports each one for its route-registering
+side effects; routes register through the same `@app.route` decorators
+`pages/core.py` uses. Adding one is: create the file, add its name to `PAGES`.
 
 Two rules keep that from rotting:
 
-- **Modules own pages, never models.** Every table lives in the one
+- **Page files own routes, never models.** Every table lives in the one
   `models.py`. The point of this app is that a Commitment points at a Customer
-  which points at a Project — splitting peewee models across packages buys
-  tidy folders and costs you import cycles and a relational backbone full of
-  holes. If a module needs a new table, add it to `models.py`.
-- **Namespace module templates by a subdirectory matching the module name** —
-  `modules/crm/templates/crm/opportunities_list.html`, rendered as
+  which points at a Project — splitting peewee models across files buys tidy
+  folders and costs you import cycles and a relational backbone full of
+  holes. If a page file needs a new table, add it to `models.py`.
+- **Namespace a page file's templates by a subdirectory matching its name** —
+  `templates/crm/opportunities_list.html`, rendered as
   `render("crm/opportunities_list.html")`. `TEMPLATE_PATH` is a flat list
-  searched in order, so without the prefix two modules can't both have a
+  searched in order, so without the prefix two page files can't both have a
   `list.html` and which one wins depends on registration order.
 
 Core's routes (auth, customers, tasks, comments, attachments, chat) stay in
-the top-level `pages.py`, along with the shared helpers modules import from it
-(`_load_comments`, `_active_clients`, `_people`, `_open_projects`, …).
+`pages/core.py`, along with the shared helpers the other four import from it
+(`_load_comments`, `_active_clients`, `_people`, `_open_projects`, …) —
+`app.py` imports `pages.core` directly, before calling `pages.register()`,
+since those four depend on it already being loaded.
 
 ## Derived state lives in insights.py
 
@@ -60,13 +90,13 @@ Two consequences worth internalising before you change anything there:
   querying for it in a route.
 
 `Opportunity` and `Project` carry `last_activity_at`, which is what "stalled"
-reads. Every write path must bump it (`_touch()` in `modules/crm/pages.py` and
-`modules/ops/pages.py`); miss one and the record looks abandoned the moment
-someone stops editing it from that page.
+reads. Every write path must bump it (`_touch()` in `pages/crm.py` and
+`pages/ops.py`); miss one and the record looks abandoned the moment someone
+stops editing it from that page.
 
 ## The ledger is the layout primitive
 
-The dashboard's attention list, all four ledger sections of `/cracks`, and the
+The dashboard's attention list, all four ledger sections of `/control`, and the
 Capture review are one partial: `dashboard/_ledger.html`, fed rows from
 `insights._row()`. Mono gutter carrying elapsed time, hairline between rows,
 no card. If you're adding a list of "things that are wrong", render it through
@@ -85,7 +115,7 @@ would be far worse than showing them an error. The proposal is stored on
 row rather than in the session and a refresh mid-review loses nothing.
 
 Everything a model proposes goes through `_clean()` in
-`modules/capture/extract.py`, which walks the parsed JSON against
+`pages/capture_extract.py`, which walks the parsed JSON against
 `RECORD_TYPES` and drops unknown types, unknown fields and unusable values.
 That allow-list is the boundary between "what a model said" and "what this app
 will write". Widen it deliberately, never by adding a passthrough.
@@ -166,7 +196,7 @@ will write". Widen it deliberately, never by adding a passthrough.
   `SQLITE_PATH=/tmp/scratch.db PORT=8123 python3 app.py` — rather than the
   real `app.db`, so local data doesn't need resetting afterward. Register an
   account and the demo company seeds itself.
-- **Anything touching `insights.py`**: check both `/` and `/cracks` still
+- **Anything touching `insights.py`**: check both `/` and `/control` still
   have content. The seed data is tuned so every section on both pages is
   non-empty; a change that empties one is usually a bug in the query, not a
   quiet company.

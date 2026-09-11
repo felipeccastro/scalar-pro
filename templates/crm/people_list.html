@@ -32,7 +32,7 @@
   <tbody>
     %for p in people:
       %l = load[p.id]
-      <tr>
+      <tr id="record-{{p.id}}">
         <td>
           {{p.name}}
           %if not p.active:

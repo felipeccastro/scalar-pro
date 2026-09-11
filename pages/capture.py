@@ -16,11 +16,12 @@ from bottle import request
 
 from app import app, render
 from models import Decision, Note, NoteLink, Person
-from pages import _load_activity, _load_comments
+from pages.core import _load_activity, _load_comments
 from utils import current_user, flash, record_activity, redirect, require_login, url_for
 import ai
 import insights
-from modules.capture import extract
+import search
+from pages import capture_extract as extract
 
 # Shown when neither backend answers. Names the two things that fix it, in the
 # order someone is likely to try them — an error that doesn't say what to do
@@ -51,6 +52,7 @@ def capture_read():
         occurred_on=datetime.date.today(), created_by=current_user(),
     )
     record_activity("note", note.id, current_user(), "captured")
+    search.index_entity(note)
 
     try:
         proposal = extract.extract(body)

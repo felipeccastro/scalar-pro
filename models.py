@@ -324,9 +324,9 @@ SUBJECT_TYPES = (
     "opportunity", "commitment", "decision", "note",
 )
 
-# Shared with pages.py (form choices) and ai.py (tool-schema enums / write-tool
+# Shared with pages/*.py (form choices) and ai.py (tool-schema enums / write-tool
 # validation) — defined once here so ai.py can import them without importing
-# pages.py back (pages.py does `import ai`, so that direction would cycle).
+# pages/*.py back (several of those do `import ai`, so that direction would cycle).
 CLIENT_STATUSES = ("lead", "active", "inactive")
 TASK_STATUSES = ("todo", "in_progress", "done")
 PROJECT_STATUSES = ("planning", "active", "at_risk", "blocked", "done")
@@ -496,3 +496,20 @@ def ensure_schema() -> None:
     _add_column_if_missing("task", "project_id", "INTEGER")
     _add_column_if_missing("task", "due_date", "DATE")
     _add_column_if_missing("task", "priority", "VARCHAR(255) DEFAULT 'normal'")
+    # Quick search (see search.py). Same technique as admin: a standalone
+    # FTS5 table, not tied to any one model via content=, kept in sync by
+    # explicit index_entity()/delete_entity() calls rather than SQL triggers.
+    # `kind`/`entity_id` are UNINDEXED — stored so a hit resolves back to a
+    # real row, but never matched against.
+    db.execute_sql(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+            title,
+            body,
+            comments,
+            kind      UNINDEXED,
+            entity_id UNINDEXED,
+            tokenize='porter unicode61'
+        )
+        """
+    )

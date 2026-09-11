@@ -59,7 +59,7 @@
   <tbody>
     %for c in commitments:
       %shown = insights.commitment_display_status(c)
-      <tr>
+      <tr id="record-{{c.id}}">
         <td class="nowrap">{{c.person.name if c.person_id else '—'}}</td>
         <td>
           {{c.description}}

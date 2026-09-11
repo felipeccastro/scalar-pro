@@ -1,8 +1,8 @@
 """The two screens that read the whole company back to you.
 
 `/` is the CEO briefing: what needs attention, five numbers, what changed,
-what we decided. `/cracks` is the same data asked a harsher question — what's
-late, at risk, quiet, or ownerless.
+what we decided. `/control` is the same data asked a harsher question —
+what's late, at risk, quiet, or ownerless.
 
 Neither page computes anything itself. Every list comes from insights.py,
 which is the only reason the dashboard's "3 overdue commitments" and the
@@ -35,9 +35,9 @@ def _capture_panel() -> dict:
     note = Note.get_or_none(Note.id == int(note_id))
     if note is None or not note.proposal_json:
         return {"note": None, "proposal": None}
-    # Imported here rather than at module scope: modules/capture registers
+    # Imported here rather than at module scope: pages/capture registers
     # after this one, and only this function needs it.
-    from modules.capture.extract import proposal_rows
+    from pages.capture_extract import proposal_rows
 
     return {"note": note, "proposal": proposal_rows(note)}
 
@@ -62,11 +62,11 @@ def dashboard():
     )
 
 
-@app.route("/cracks", method="GET", name="cracks")
+@app.route("/control", method="GET", name="control")
 @require_login
-def cracks():
+def control():
     return render(
-        "dashboard/cracks.html",
+        "dashboard/control.html",
         overdue=insights.overdue_rows(),
         at_risk=insights.at_risk_projects(),
         stalled=insights.stalled_rows(),

@@ -1,9 +1,9 @@
 """Sales: the pipeline and the people in it.
 
-Customers themselves stay in the top-level pages.py — they're Core's `Client`
-and every part of the app touches them. What lives here is what turns a
-customer list into a pipeline: opportunities, and the directory of people who
-own them.
+Customers themselves stay in pages/core.py — they're Core's `Client` and
+every part of the app touches them. What lives here is what turns a customer
+list into a pipeline: opportunities, and the directory of people who own
+them.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from models import (
     Task,
     User,
 )
-from pages import _active_clients, _linked_notes, _load_activity, _load_attachments, _load_comments, _people
+from pages.core import _active_clients, _linked_notes, _load_activity, _load_attachments, _load_comments, _people
 from utils import (
     current_user,
     flash,
@@ -32,6 +32,7 @@ from utils import (
     url_for,
 )
 import insights
+import search
 
 
 def _touch(opportunity: Opportunity) -> None:
@@ -85,6 +86,7 @@ def opportunities_create():
         created_by=current_user(),
     )
     record_activity("opportunity", opportunity.id, current_user(), "created")
+    search.index_entity(opportunity)
     flash(f"Added {opportunity.title}.", "success")
     redirect(url_for("opportunity_detail", opportunity_id=opportunity.id))
 
@@ -135,6 +137,7 @@ def opportunity_update(opportunity_id: int):
         )
     else:
         record_activity("opportunity", opportunity.id, current_user(), "updated")
+    search.index_entity(opportunity)
     flash("Opportunity updated.", "success")
     redirect(url_for("opportunity_detail", opportunity_id=opportunity.id))
 
@@ -193,6 +196,7 @@ def people_create():
         role=(request.forms.get("role") or "").strip(),
         email=(request.forms.get("email") or "").strip(),
     )
+    search.index_entity(person)
     flash(f"Added {person.name}.", "success")
     redirect(url_for("people_list"))
 
@@ -213,5 +217,6 @@ def person_update(person_id: int):
     user_id = parse_int(request.forms.get("user_id"))
     person.user = User.get_or_none(User.id == user_id) if user_id else None
     person.save()
+    search.index_entity(person)
     flash(f"Updated {person.name}.", "success")
     redirect(url_for("people_list"))

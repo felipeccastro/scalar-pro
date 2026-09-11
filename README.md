@@ -19,7 +19,7 @@ and two screens that read the whole company back to you.
 headline numbers, what changed this week, what was decided. Every line is
 computed from the data, not generated.
 
-**Cracks (`/cracks`)** — the COO's version of the same question. Everything
+**Control (`/control`)** — the COO's version of the same question. Everything
 overdue, at risk, gone quiet, or owned by nobody, sorted by how long it's been
 that way. Plus a table of who promised what this week.
 
@@ -60,17 +60,18 @@ SQLITE_PATH=/tmp/scratch.db python3 seed.py
 ## Layout
 
 ```
-app.py         wiring: config, hooks, error pages, template globals
-models.py      every table, and ensure_schema() (the whole migration story)
-pages.py       Core's routes: auth, customers, tasks, comments, chat
-insights.py    the derived state both dashboards read — overdue, at risk, stalled
-ai.py          explain (chat tools) + extract (JSON mode)
-seed.py        the demo company
-modules/
-  dashboard/   / and /cracks, and the ledger partial they share
-  crm/         opportunities, people
-  ops/         projects, commitments
-  capture/     the Capture routes, notes, decisions
+app.py             wiring: config, hooks, error pages, template globals
+models.py          every table, and ensure_schema() (the whole migration story)
+insights.py        the derived state both dashboards read — overdue, at risk, stalled
+ai.py              explain (chat tools) + extract (JSON mode)
+seed.py            the demo company
+pages/
+  core.py          Core's routes: auth, customers, tasks, comments, chat
+  dashboard.py     / and /control, and the ledger partial they share
+  crm.py           opportunities, people
+  ops.py           projects, commitments
+  capture.py       the Capture routes, notes, decisions
+  capture_extract.py   the extraction pipeline behind Capture
 ```
 
 See [AGENTS.md](AGENTS.md) for what belongs where and why.

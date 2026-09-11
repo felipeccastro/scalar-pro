@@ -45,6 +45,7 @@ from models import (
 from utils import parse_date, record_activity
 import ai
 import insights
+import search
 
 # The contract, in one place. Each record type declares the fields it accepts,
 # their kind, and (for enums) the permitted values. This drives the prompt, the
@@ -352,6 +353,7 @@ def _find_or_create_customer(name: str, actor) -> Client:
         return existing
     client = Client.create(name=name, company=name, status="lead", created_by=actor)
     record_activity("client", client.id, actor, "created")
+    search.index_entity(client)
     return client
 
 
@@ -359,7 +361,9 @@ def _find_or_create_person(name: str) -> Person:
     existing = _by_exact_name(Person, Person.name, name)
     if existing is not None:
         return existing
-    return Person.create(name=name)
+    person = Person.create(name=name)
+    search.index_entity(person)
+    return person
 
 
 def _find_project(name: str) -> Project | None:
@@ -404,6 +408,7 @@ def create_records(note: Note, keys: list[str], actor) -> dict:
                 continue
             NoteLink.create(note=note, subject_type=subject_type, subject_id=obj.id)
             record_activity(subject_type, obj.id, actor, "extracted", note_id=note.id)
+            search.index_entity(obj)
             created.append((subject_type, obj.id, str(record.get(spec["title"], ""))))
             if subject_type == "client" and primary_customer is None:
                 primary_customer = obj
@@ -443,6 +448,7 @@ def _create_one(type_key: str, record: dict, actor):
                 client.notes = (client.notes + "\n\n" + get("notes")).strip()
                 client.updated_at = datetime.datetime.now()
                 client.save()
+                search.index_entity(client)
             return client, "client"
         return Client.create(
             name=get("name"), company=get("name"), status=get("status") or "lead",

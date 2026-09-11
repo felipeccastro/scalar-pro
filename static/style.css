@@ -533,6 +533,99 @@ h3 { font-size: var(--text-6); font-weight: 600; }
 }
 .search-form input[type="search"] { max-width: 20rem; }
 
+/* ── Quick search (⌘K command palette) ───────────────────────
+   oat.css already themes the bare <dialog> as a centered card with a
+   dimmed backdrop (same base every other dialog in this app gets) — this
+   just sizes it and themes the input/results list inside. */
+.cmd-palette { width: min(560px, 92vw); padding: 0; margin-top: 8vh; }
+
+#cmd-palette-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-4) var(--space-5);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+#cmd-palette-results {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.palette-section {
+  padding: var(--space-2) var(--space-5) var(--space-1);
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--faint-foreground);
+}
+
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  color: var(--foreground);
+  text-decoration: none;
+  font-size: 0.8125rem;
+}
+.palette-row:hover, .palette-row:focus, .palette-row.is-selected {
+  background: var(--accent);
+}
+.palette-kind {
+  flex-shrink: 0;
+  min-width: 1.75rem;
+  height: 1.25rem;
+  padding: 0 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-small);
+  background: var(--accent);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+.palette-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-meta {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.palette-empty {
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.nav-kbd {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--faint-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius-small);
+}
+
 .pre-wrap-input { font-family: inherit; }
 .pre-wrap { white-space: pre-wrap; }
 
@@ -672,6 +765,13 @@ button.btn-primary:active, a.btn.btn-primary:active, [type="submit"].btn-primary
 .data-table tbody tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--accent); }
 .data-table td.muted { text-align: center; padding: 2.5rem 0.875rem; cursor: default; }
+
+/* Landing spot for quick search hits with no detail page of their own
+   (person, commitment, decision — see insights.subject_url): the list is
+   the truthful destination, but the browser's own #fragment scroll plus
+   :target here still puts the one row that was searched for in view and
+   lit up, instead of dropping you on the list in general. */
+.data-table tbody tr:target { background: var(--accent); }
 
 /* ── Kanban / board ─────────────────────────────────────── */
 
@@ -1059,6 +1159,16 @@ a.ledger-primary:hover { text-decoration: underline; text-underline-offset: 2px;
 
 .decision { padding: var(--space-6) 0; border-bottom: 1px solid var(--rule); }
 .decision:first-of-type { border-top: 1px solid var(--rule); }
+/* Same purpose as .data-table tbody tr:target — landing spot for a quick
+   search hit that has no detail page of its own. Padded and pulled back out
+   via a negative margin so the highlight doesn't run edge-to-edge flush
+   with the surrounding text. */
+.decision:target {
+  background: var(--accent);
+  border-radius: var(--radius-medium);
+  padding: var(--space-6) var(--space-4);
+  margin: 0 calc(-1 * var(--space-4));
+}
 .decision-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
 .decision-title {
   font-family: var(--font-serif);

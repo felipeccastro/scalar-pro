@@ -14,7 +14,7 @@
 %# Each decision shows what and why, not just what. A log of outcomes with no
 %# reasoning is a changelog; the reasoning is the part you come back for.
 %for d in decisions:
-  <article class="decision">
+  <article class="decision" id="record-{{d.id}}">
     <div class="decision-head">
       <h3 class="decision-title">{{d.title}}</h3>
       <span class="badge badge-{{d.status}}"><i class="dot"></i>{{status_label(d.status)}}</span>

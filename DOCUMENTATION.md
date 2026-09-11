@@ -10,7 +10,7 @@ page. Keep it in sync with the code — see [AGENTS.md](AGENTS.md).
 - [Overview](#overview)
 - [Accounts, team & access](#accounts-team--access)
 - [Dashboard](#dashboard)
-- [Cracks — the control center](#cracks--the-control-center)
+- [Control](#control)
 - [Capture — text into records](#capture--text-into-records)
 - [Customers](#customers)
 - [Opportunities](#opportunities)
@@ -24,6 +24,7 @@ page. Keep it in sync with the code — see [AGENTS.md](AGENTS.md).
 - [Comments, attachments & activity](#comments-attachments--activity)
 - [Notifications](#notifications)
 - [Ask AI (chat assistant)](#ask-ai-chat-assistant)
+- [MCP server](#mcp-server)
 - [Settings & appearance](#settings--appearance)
 - [Error pages](#error-pages)
 - [Navigation & keyboard](#navigation--keyboard)
@@ -68,7 +69,7 @@ and peewee are vendored as plain `.py` files in `vendor/`. See the
   `/login` — there's no open sign-up after that.
 - **Roles**: `owner`, `admin`, `member` (`TeamMember.role`). The only
   role-gated action is **sending an invite** (owner/admin — `@require_role`
-  in `pages.py`). Everything else (Clients/Tasks CRUD, comments,
+  in `pages/core.py`). Everything else (Clients/Tasks CRUD, comments,
   attachments) is open to any signed-in team member; roles are otherwise
   informational (shown in the Settings team table).
 - **Inviting**: an owner/admin enters an email on the Settings page, which
@@ -107,10 +108,10 @@ sentences first, the numbers second. Deliberately not a BI dashboard.
   recent.
 (Capture sits above all of this — see below.)
 
-## Cracks — the control center
+## Control
 
-`/cracks` — the same data asked a harsher question: *What's falling through
-the cracks?* Five sections, none truncated:
+`/control` — the same data asked a harsher question: *What isn't under
+control?* Five sections, none truncated:
 
 - **Overdue** — one merged list across tasks, commitments, opportunity
   next-actions and projects, sorted by days late. A COO doesn't care which
@@ -154,7 +155,7 @@ no JavaScript, and the review panel opens in the same slot so nothing scrolls.
 gets discarded.
 
 Extracted record types and their fields are declared once, in
-`RECORD_TYPES` (`modules/capture/extract.py`), which drives the prompt, the
+`RECORD_TYPES` (`pages/capture_extract.py`), which drives the prompt, the
 validation and the review labels together. Anything the model returns outside
 that allow-list — an unknown record type, an unknown field, an unparseable
 date — is dropped before it can reach the database.
@@ -322,9 +323,18 @@ is 1:1 with `User`). Two interchangeable backends, picked automatically:
 It's a tool-calling agent (`ai.py`) over **read** tools — `list_clients`,
 `get_client`, `list_tasks`, `get_task`, `list_opportunities`, `list_projects`,
 `list_commitments`, `list_decisions`, `list_people`, `search` (which spans
-every record type), and `get_attention` — and **write** tools
-(`create_client`, `update_client`, `archive_client`, `create_task`,
-`update_task`, `archive_task`) — up to `MAX_TOOL_ROUNDTRIPS` (6) per message.
+every record type), and `get_attention` — and **write** tools covering every
+record type: `create_client`/`update_client`/`archive_client`,
+`create_task`/`update_task`/`archive_task`, `create_project`/
+`update_project`/`archive_project`, `create_opportunity`/`update_opportunity`/
+`archive_opportunity`, `create_commitment`/`update_commitment`,
+`create_decision`/`update_decision`, `create_person`/`update_person`, and
+`create_note`/`update_note` — up to `MAX_TOOL_ROUNDTRIPS` (6) per message.
+Commitment, Decision, Person and Note have no archive tool: none of them has
+an `archived_at` column, so retiring one is a `status`/`active` update
+instead (same as their pages/*.py routes, where one exists at all — Decision
+and Note have no manual create/edit UI yet, only Capture's extraction path;
+the chat tools are these two types' only hand-editing surface today).
 Read tools execute immediately; a write tool call **pauses the turn** and
 shows a confirmation banner ("The assistant wants to: …") with Confirm/
 Cancel buttons before anything is actually written — `ChatThread.pending_*`
@@ -338,13 +348,42 @@ the same `insights.py` functions those pages render. It exists so the
 assistant's answer to "what needs my attention?" cannot contradict the screen
 the user is looking at.
 
-Answering questions is all the assistant does with Pro's records — every new
-tool is read-only, and the only writes remain the six Client/Task ones, each
-still gated behind confirmation.
-
 Model replies are rendered through a small hand-rolled Markdown-to-HTML
 renderer (`ai.py: render_markdown`) — the only place in the app that
 happens; everything else (comments, descriptions, notes) is plain text.
+
+## MCP server
+
+`mcp_server.py` — a standalone [MCP](https://modelcontextprotocol.io) server,
+hand-rolled JSON-RPC 2.0 over stdio (no `mcp` pip package, per the
+zero-dependency rule), so an MCP client (Claude Desktop, Claude Code, ...)
+can call Pro's data directly instead of through the `/chat` UI. Run as a
+subprocess, not as part of the web app:
+
+```json
+{ "mcpServers": { "binders-pro": {
+    "command": "python3", "args": ["/absolute/path/to/pro/mcp_server.py"]
+} } }
+```
+
+It exposes the exact same tool set as Ask AI — `ai.TOOLS_SCHEMA` becomes
+`tools/list`, `ai._execute_tool` is `tools/call`'s dispatcher — so anything
+listed under [Ask AI](#ask-ai-chat-assistant) above is reachable here too,
+read tools and every write tool alike.
+
+Two differences from the chat path, both consequences of there being no
+browser session on a stdio pipe:
+
+- **No confirmation pause.** The chat UI stops on a write tool for a
+  Confirm/Cancel click. MCP hosts already show their own "allow this tool
+  call?" prompt before ever sending `tools/call`, so that's this
+  transport's confirmation — writes run immediately once called.
+- **No signed-in user to act as.** Writes are attributed to the first
+  registered account (the workspace owner), the same convention
+  `seed.py`'s own standalone entrypoint uses.
+
+No new configuration — it reads the same `.env` (in particular `SQLITE_PATH`,
+so it talks to the same database) as `app.py`.
 
 ## Settings & appearance
 
@@ -382,7 +421,7 @@ could fail with it.
 
 - **Esc** goes "back" a level: a detail page (`/clients/<id>`, `/tasks/<id>`,
   `/projects/<id>`, `/opportunities/<id>`, `/notes/<id>`) goes to its list; a
-  list page, and `/cracks`, go to the dashboard. Opt-in per page via
+  list page, and `/control`, go to the dashboard. Opt-in per page via
   `<body data-esc-back>`; pages that don't set it (dashboard, chat, settings,
   notifications) aren't affected.
   Suppressed while a modal dialog is open or while typing in a field.
@@ -430,7 +469,7 @@ flow still works without email configured — handy for local dev.
   mono-caps headings by what you'd be doing — Today, Pipeline, Work, Record,
   More.
 - **The ledger**: the dashboard's attention list, all four ledger sections of
-  `/cracks`, and the Capture review are one shared partial. A mono left gutter
+  `/control`, and the Capture review are one shared partial. A mono left gutter
   carries elapsed time (`6d over`, `14d quiet`, `today`), tinted red for
   overdue and amber for stalled; a hairline separates rows; there's no card
   around any of it. The gutter is the point — on both pages the number that
