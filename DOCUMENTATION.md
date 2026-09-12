@@ -476,8 +476,8 @@ could fail with it.
 
 ## Email
 
-Postmark's HTTP API (`utils.py: Mailer`), used for invite, password-reset,
-and reminder emails. Without `POSTMARK_API_KEY` set, sending raises
+Resend's HTTP API (`utils.py: Mailer`), used for invite, password-reset,
+and reminder emails. Without `RESEND_API_KEY` set, sending raises
 `MailerError`; the invite/reset call sites catch that and fall back to
 putting the link directly in a flash message ("Share this link instead: …")
 so the flow still works without email configured — handy for local dev.
@@ -596,5 +596,5 @@ only) — see [Settings & appearance](#settings--appearance).
 | `UPLOAD_FOLDER` | Attachment storage root (default `./uploads`). |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_BASE_URL` | Ask AI **and Capture**, cloud backend. |
 | `OLLAMA_HOST` / `OLLAMA_MODEL` | Ask AI **and Capture**, local backend (used when `OPENAI_API_KEY` is unset). |
-| `POSTMARK_API_KEY` / `POSTMARK_FROM` | Invite/reset emails. Unset = flash a shareable link instead. |
+| `RESEND_API_KEY` / `RESEND_FROM` | Invite/reset emails. Unset = flash a shareable link instead. |
 | `HOST` / `PORT` / `DEBUG` | Dev server (see `Makefile`/`app.py`). |
