@@ -6,7 +6,7 @@
 # instance runs under (see ../admin/launcher/provisioner.py), just invoked
 # locally instead of by the launcher.
 HOST ?= 0.0.0.0
-PORT ?= 8000
+PORT ?= 8001
 WORKERS ?= 1
 
 .PHONY: run dist
