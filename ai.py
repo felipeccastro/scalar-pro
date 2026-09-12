@@ -53,6 +53,7 @@ from models import (
     OPPORTUNITY_OPEN_STAGES,
     OPPORTUNITY_STAGES,
     PROJECT_STATUSES,
+    SUBJECT_TYPES,
     TASK_STATUSES,
     ChatMessage,
     ChatThread,
@@ -63,6 +64,7 @@ from models import (
     Opportunity,
     Person,
     Project,
+    Reminder,
     Task,
     User,
 )
@@ -73,6 +75,7 @@ import search
 REQUEST_TIMEOUT = 120
 MAX_TOOL_ROUNDTRIPS = 6
 HISTORY_MESSAGES = 12
+MAX_REMINDER_MINUTES = 60 * 24 * 365  # 1 year out, generous but not "forever"
 
 _SSL_CTX = ssl.create_default_context()
 
@@ -682,6 +685,42 @@ TOOLS_SCHEMA: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_reminder",
+            "description": (
+                "Schedule a one-time reminder for the current user: it fires "
+                "remind_in_minutes from now, at which point the app sends them an "
+                "in-app notification and an email. Optionally link it to any record by "
+                "giving both subject_type and subject_id (look the id up first via the "
+                "list_*/get_* tools or search). Requires human confirmation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "What to remind them about."},
+                    "remind_in_minutes": {
+                        "type": "integer",
+                        "description": (
+                            "Whole minutes from now — e.g. 10 for \"in 10 minutes\", "
+                            "2880 for \"in 2 days\"."
+                        ),
+                    },
+                    "subject_type": {
+                        "type": "string",
+                        "enum": list(SUBJECT_TYPES),
+                        "description": "Optional; the kind of record this reminder is about.",
+                    },
+                    "subject_id": {
+                        "type": "integer",
+                        "description": "Optional; required together with subject_type.",
+                    },
+                },
+                "required": ["message", "remind_in_minutes"],
+            },
+        },
+    },
 ]
 
 # Mutating tools never execute immediately — _agent_loop pauses on these and
@@ -697,6 +736,7 @@ _MUTATING_TOOLS = frozenset({
     "create_decision", "update_decision",
     "create_person", "update_person",
     "create_note", "update_note",
+    "create_reminder",
 })
 
 
@@ -1648,6 +1688,35 @@ def _tool_update_note(*, actor, note_id: int, title: str | None = None, body: st
     return {"ok": True, **_note_row(note)}
 
 
+def _tool_create_reminder(*, actor, message: str, remind_in_minutes: int,
+                           subject_type: str | None = None, subject_id: int | None = None) -> dict:
+    message = (message or "").strip()
+    if not message:
+        return {"error": "A reminder needs a message."}
+    try:
+        remind_in_minutes = int(remind_in_minutes)
+    except (TypeError, ValueError):
+        return {"error": "remind_in_minutes must be a whole number of minutes."}
+    if remind_in_minutes <= 0:
+        return {"error": "remind_in_minutes must be a positive number of minutes from now."}
+    if remind_in_minutes > MAX_REMINDER_MINUTES:
+        return {"error": f"Reminders can be set at most {MAX_REMINDER_MINUTES // (60 * 24)} days out."}
+    if bool(subject_type) != bool(subject_id):
+        return {"error": "subject_type and subject_id must be given together."}
+    if subject_type:
+        if subject_type not in SUBJECT_TYPES:
+            return {"error": f"Invalid subject_type {subject_type!r}; must be one of {SUBJECT_TYPES}."}
+        model = insights.SUBJECT_REGISTRY[subject_type]["model"]
+        if not model.select().where(model.id == subject_id).exists():
+            return {"error": f"No {subject_type} #{subject_id}."}
+    remind_at = datetime.datetime.now() + datetime.timedelta(minutes=remind_in_minutes)
+    reminder = Reminder.create(
+        user=actor, message=message, remind_at=remind_at,
+        subject_type=subject_type or None, subject_id=subject_id or None, created_by=actor,
+    )
+    return {"ok": True, "id": reminder.id, "message": reminder.message, "remind_at": remind_at.isoformat()}
+
+
 _DISPATCH = {
     "list_clients": _tool_list_clients,
     "get_client": _tool_get_client,
@@ -1680,6 +1749,7 @@ _DISPATCH = {
     "update_person": _tool_update_person,
     "create_note": _tool_create_note,
     "update_note": _tool_update_note,
+    "create_reminder": _tool_create_reminder,
 }
 
 
@@ -1779,6 +1849,18 @@ _FK_ARG_LABELS: dict[str, tuple] = {
 }
 
 
+def _format_minutes(minutes: int) -> str:
+    """e.g. 2880 -> "2 days", 10 -> "10 minutes" — for the confirmation
+    banner, so it doesn't just echo the raw minute count the model sent."""
+    if minutes % (60 * 24) == 0 and minutes >= 60 * 24:
+        days = minutes // (60 * 24)
+        return f"{days} day{'s' if days != 1 else ''}"
+    if minutes % 60 == 0 and minutes >= 60:
+        hours = minutes // 60
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    return f"{minutes} minute{'s' if minutes != 1 else ''}"
+
+
 def _describe_update(label: str, args: dict, id_field: str) -> str:
     """Shared "Update X: set a to b, c to d." formatter for every update_*
     tool — resolves any *_id field in _FK_ARG_LABELS to a name, echoes
@@ -1859,6 +1941,15 @@ def _describe_tool_call(name: str, args: dict) -> str:
         return f'File a new note: "{preview}".'
     if name == "update_note":
         return _describe_update(_note_label(args.get("note_id")), args, "note_id")
+    if name == "create_reminder":
+        when = _format_minutes(args.get("remind_in_minutes") or 0)
+        bits = [f'Remind you in {when}: "{args.get("message", "?")}"']
+        subject_type, subject_id = args.get("subject_type"), args.get("subject_id")
+        if subject_type and subject_id:
+            label = insights.subject_label(subject_type).lower()
+            name_ = insights.subject_name(subject_type, subject_id)
+            bits.append(f'(about {label} "{name_}")')
+        return " ".join(bits) + "."
     return f"{name}({json.dumps(args, ensure_ascii=False)})"
 
 
@@ -1893,11 +1984,11 @@ You also have write tools, covering every record type: create_client, update_cli
 archive_client, create_task, update_task, archive_task, create_project, update_project, \
 archive_project, create_opportunity, update_opportunity, archive_opportunity, \
 create_commitment, update_commitment, create_decision, update_decision, create_person, \
-update_person, create_note, update_note. Every write tool call is paused and shown to a human \
-for explicit confirmation before it takes effect — you never need to ask "are you sure?" or \
-"should I go ahead?" in your own words first; just call the tool, and the app's own UI handles \
-confirming or cancelling. Don't tell the user a change has happened until you see the tool's \
-actual result — a pending write hasn't happened yet, and it may be declined.
+update_person, create_note, update_note, create_reminder. Every write tool call is paused and \
+shown to a human for explicit confirmation before it takes effect — you never need to ask "are \
+you sure?" or "should I go ahead?" in your own words first; just call the tool, and the app's own \
+UI handles confirming or cancelling. Don't tell the user a change has happened until you see the \
+tool's actual result — a pending write hasn't happened yet, and it may be declined.
 
 Every update_* tool is a partial update: only pass fields you actually intend to change; omitted \
 fields are left exactly as they are. For a foreign-key field (customer_id, owner_id, person_id, \
@@ -1906,6 +1997,15 @@ first (the list_*/get_* tools, or search) rather than guessing them. Client, Tas
 Opportunity can be archived (one-way, no "unarchive" tool, no hard delete); Commitment, \
 Decision, Person and Note have no archive state — Commitment and Decision retire via their own \
 `status`, Person via `active=false`, and a Note is just left as-is.
+
+create_reminder schedules a one-time reminder for the person you're talking to: give it a message \
+and remind_in_minutes (a whole number of minutes from now — convert "in 10 minutes" to 10, "in 2 \
+days" to 2880, "in an hour" to 60, etc. — there's no separate date/time field, just an offset). \
+Optionally link it to any record by passing both subject_type (client/task/person/project/ \
+opportunity/commitment/decision/note) and subject_id. When it fires, the app sends the user a \
+notification and an email, and pops a toast on whatever page they're on within about 20 seconds — \
+there's no page to browse or cancel pending reminders before they fire, so mention that if someone \
+asks to see or undo one.
 
 You have no ability to execute code, read/write files, or run shell commands — the tools listed \
 above are the entirety of what you can do, and they only ever read or write Pro's own business \

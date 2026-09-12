@@ -137,11 +137,15 @@ will write". Widen it deliberately, never by adding a passthrough.
   uses the checkbox hack; New Client/Task modals open via
   `commandfor`/`command="show-modal"`, wired by the already-vendored
   `oat.min.js` (native browser support when present, its own click handler
-  otherwise) — not custom JS. The Esc-navigation listener and the theme
-  toggle are the two deliberate exceptions, because there's no declarative
-  way to do either; both are small, single-purpose, and commented inline
-  in `layout.html`/`settings.html`. Follow that same shape for anything
-  else that genuinely needs script — don't reach for a framework or bundler.
+  otherwise) — not custom JS. The Esc-navigation listener, the theme
+  toggle, the ⌘K command palette's `fetch()`+innerHTML, and the
+  reminder-toast poll (`layout.html`'s `setInterval` hitting
+  `/notifications/poll` — see
+  [Scheduled jobs & reminders](DOCUMENTATION.md#scheduled-jobs--reminders))
+  are the deliberate exceptions, because there's no declarative way to do
+  any of them; each is small, single-purpose, and commented inline in
+  `layout.html`/`settings.html`. Follow that same shape for anything else
+  that genuinely needs script — don't reach for a framework or bundler.
 - **Schema changes go through `ensure_schema()`** in `models.py`: add a new
   model to `ALL_MODELS`, or a new column via `_add_column_if_missing()`.
   SQLite can't add a `REFERENCES` column to an existing table, so an added FK

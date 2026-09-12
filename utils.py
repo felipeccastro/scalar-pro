@@ -448,6 +448,14 @@ class Mailer:
         )
         return cls.send(to=email, subject=subject, html_body=html_body)
 
+    @classmethod
+    def send_reminder(cls, *, email: str, message: str) -> dict:
+        """Sent by jobs.py when a Reminder's remind_at passes. Always to the
+        reminder's own user — there's no "remind someone else" tool."""
+        subject = f"Reminder: {message[:120]}"
+        html_body = cls._wrap(f"<p>{_esc(message)}</p>")
+        return cls.send(to=email, subject=subject, html_body=html_body)
+
     @staticmethod
     def _wrap(inner_html: str) -> str:
         return (
@@ -495,6 +503,33 @@ def notify(user, kind: str, **payload: Any):
     if user is None:
         return None
     return Notification.create(user=user, kind=kind, payload_json=json.dumps(payload, default=str))
+
+
+def notification_summary(n) -> str:
+    """Human-readable form of a Notification's kind + payload, for
+    notifications.html — replaces what used to be a raw {{n.payload_json}}
+    dump. Falls back to the kind name for anything not covered here, so a
+    future kind added without updating this function still renders
+    something instead of nothing."""
+    import insights  # deferred: insights.py imports utils at module level
+
+    try:
+        payload = json.loads(n.payload_json or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    if n.kind == "assignment":
+        return f"You were assigned to “{payload.get('task_title', 'a task')}”."
+    if n.kind == "comment":
+        return f"New comment on “{payload.get('task_title', 'a task')}”."
+    if n.kind == "reminder":
+        message = payload.get("message") or "Reminder."
+        subject_type, subject_id = payload.get("subject_type"), payload.get("subject_id")
+        if subject_type and subject_id:
+            label = insights.subject_label(subject_type).lower()
+            name = insights.subject_name(subject_type, subject_id)
+            return f'{message} (about {label} "{name}")'
+        return message
+    return n.kind.replace("_", " ").capitalize() + "."
 
 
 # ---------------------------------------------------------------------------

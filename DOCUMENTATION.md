@@ -25,6 +25,7 @@ page. Keep it in sync with the code — see [AGENTS.md](AGENTS.md).
 - [Notifications](#notifications)
 - [Ask AI (chat assistant)](#ask-ai-chat-assistant)
 - [MCP server](#mcp-server)
+- [Scheduled jobs & reminders](#scheduled-jobs--reminders)
 - [Settings & appearance](#settings--appearance)
 - [Error pages](#error-pages)
 - [Navigation & keyboard](#navigation--keyboard)
@@ -302,11 +303,12 @@ its model, detail route and label:
 
 ## Notifications
 
-`/notifications` — a flat, newest-first list. Two kinds today:
-**assignment** (you were made a task's assignee) and **comment** (someone
+`/notifications` — a flat, newest-first list. Three kinds today:
+**assignment** (you were made a task's assignee), **comment** (someone
 commented on something — not currently wired to any route, but the
-`notify()` helper and template already handle the kind). Unread rows get a
-dot marker; "Mark all read" and per-row "Mark read" are both one POST.
+`notify()` helper and template already handle the kind), and **reminder**
+(see [Scheduled jobs & reminders](#scheduled-jobs--reminders)). Unread rows
+get a dot marker; "Mark all read" and per-row "Mark read" are both one POST.
 There's no unread-count badge in the sidebar nav yet.
 
 ## Ask AI (chat assistant)
@@ -328,13 +330,15 @@ record type: `create_client`/`update_client`/`archive_client`,
 `create_task`/`update_task`/`archive_task`, `create_project`/
 `update_project`/`archive_project`, `create_opportunity`/`update_opportunity`/
 `archive_opportunity`, `create_commitment`/`update_commitment`,
-`create_decision`/`update_decision`, `create_person`/`update_person`, and
-`create_note`/`update_note` — up to `MAX_TOOL_ROUNDTRIPS` (6) per message.
-Commitment, Decision, Person and Note have no archive tool: none of them has
-an `archived_at` column, so retiring one is a `status`/`active` update
-instead (same as their pages/*.py routes, where one exists at all — Decision
-and Note have no manual create/edit UI yet, only Capture's extraction path;
-the chat tools are these two types' only hand-editing surface today).
+`create_decision`/`update_decision`, `create_person`/`update_person`,
+`create_note`/`update_note`, and `create_reminder` — up to
+`MAX_TOOL_ROUNDTRIPS` (6) per message. Commitment, Decision, Person and Note
+have no archive tool: none of them has an `archived_at` column, so retiring
+one is a `status`/`active` update instead (same as their pages/*.py routes,
+where one exists at all — Decision and Note have no manual create/edit UI
+yet, only Capture's extraction path; the chat tools are these two types'
+only hand-editing surface today). `create_reminder` is the same shape:
+no manual UI at all, see [Scheduled jobs & reminders](#scheduled-jobs--reminders).
 Read tools execute immediately; a write tool call **pauses the turn** and
 shows a confirmation banner ("The assistant wants to: …") with Confirm/
 Cancel buttons before anything is actually written — `ChatThread.pending_*`
@@ -385,6 +389,35 @@ browser session on a stdio pipe:
 No new configuration — it reads the same `.env` (in particular `SQLITE_PATH`,
 so it talks to the same database) as `app.py`.
 
+## Scheduled jobs & reminders
+
+`jobs.py` runs a single background thread (started from `app.py` at process
+startup) that polls the database every 30 seconds and runs whichever
+registered jobs are due — a small stdlib-only (`threading` + `time`)
+scheduler, not a task queue.
+
+The one job today is firing **reminders**: a `Reminder` (message, `remind_at`,
+optionally linked to any record type — client/task/person/project/
+opportunity/commitment/decision/note) is created only via Ask AI/MCP's
+`create_reminder` tool — "remind me about this project in 2 days" or "remind
+me about this task in 10 minutes" — there's no manual form for it. Once
+`remind_at` passes, the job creates a **reminder** notification (see
+[Notifications](#notifications)) for whoever asked, emails them the reminder
+text, and logs a `reminder_fired` activity entry if it was linked to a
+record.
+
+A fired reminder pops up as a toast wherever the person is in the app, not
+just on their next click: a small polling script in `layout.html` hits
+`GET /notifications/poll` every 20 seconds and shows whatever comes back via
+the same `ot.toast()` used for flash messages. A page that's already open
+gets the toast within that window; `pages/notifications.py`'s
+`_toast_due_reminders` `before_request` hook is the no-JS/first-load
+fallback for everyone else. Either path marks the reminder's notification
+read — for a reminder, seeing the toast *is* the read receipt, unlike
+assignment/comment notifications, which still wait for an explicit "mark
+read" on the /notifications page. There's no page to browse or cancel a
+reminder before it fires.
+
 ## Settings & appearance
 
 `/settings`:
@@ -431,11 +464,14 @@ could fail with it.
 
 ## Email
 
-Postmark's HTTP API (`utils.py: Mailer`), used for invite and
-password-reset emails. Without `POSTMARK_API_KEY` set, sending raises
-`MailerError`; both call sites catch that and fall back to putting the
-link directly in a flash message ("Share this link instead: …") so the
-flow still works without email configured — handy for local dev.
+Postmark's HTTP API (`utils.py: Mailer`), used for invite, password-reset,
+and reminder emails. Without `POSTMARK_API_KEY` set, sending raises
+`MailerError`; the invite/reset call sites catch that and fall back to
+putting the link directly in a flash message ("Share this link instead: …")
+so the flow still works without email configured — handy for local dev.
+`jobs.py`'s reminder job instead just logs the failure and moves on (there's
+no request/flash to fall back to from a background thread) — the in-app
+notification still goes out either way.
 
 ## Interface & behavior
 
@@ -523,6 +559,7 @@ migrations directory).
 | `Attachment` | Generic over subject. Local-disk file, metadata in DB. |
 | `Activity` | Generic over subject. Append-only log: verb + JSON payload. |
 | `Notification` | Per-user. `kind` + JSON payload, `read_at`. |
+| `Reminder` | message, `remind_at`, optional generic subject link, `sent_at` (null until `jobs.py` fires it). Created only via Ask AI/MCP. |
 | `ChatThread` | 1:1 with `User`. Holds `pending_*` fields for an in-flight write confirmation. |
 | `ChatMessage` | user/assistant turns in a thread. |
 
