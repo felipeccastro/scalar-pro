@@ -685,7 +685,7 @@ TOOLS_SCHEMA: list[dict] = [
 ]
 
 # Mutating tools never execute immediately — _agent_loop pauses on these and
-# hands control back to pages/core.py/chat.html for a human Confirm/Cancel
+# hands control back to pages/chat.py/chat.html for a human Confirm/Cancel
 # before _execute_tool ever actually runs one. Read tools (above) keep
 # running the moment the model calls them, exactly as before.
 _MUTATING_TOOLS = frozenset({
@@ -986,7 +986,7 @@ def _tool_get_attention() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Write tools — mirror pages/core.py's Client/Task CRUD routes exactly (same field
+# Write tools — mirror pages/clients.py's and pages/tasks.py's CRUD routes exactly (same field
 # lists, same record_activity/notify calls) so an AI-driven write behaves
 # identically to a human using the form UI. Never raise across the tool
 # boundary — bad ids/status/missing fields all come back as {"error": ...}
@@ -2081,7 +2081,7 @@ def complete_json(system: str, user_text: str, *, max_tokens: int = 2000) -> dic
 
 class _NeedsConfirmation:
     """Sentinel returned by _agent_loop when the model proposes one or more
-    mutating tool calls — they must be confirmed by a human (via pages/core.py's
+    mutating tool calls — they must be confirmed by a human (via pages/chat.py's
     /chat/confirm or /chat/cancel) before _execute_tool actually runs them."""
 
     def __init__(self, convo: list[dict], pending_calls: list[dict], round_idx: int):

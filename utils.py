@@ -151,7 +151,7 @@ def csrf_token() -> str:
 # Routes authenticated independently of the session (see
 # require_internal_secret) have no session-seeded CSRF token to present and
 # no session to be logged in on, so both csrf_protect() below and the
-# login-required hook (pages/core.py) skip them by path. Checked by path
+# login-required hook (pages/__init__.py) skip them by path. Checked by path
 # rather than a route name (contrast PUBLIC_ROUTES in this module) because
 # Bottle's before_request hooks fire *before* routing — request.route isn't
 # resolved yet at this point, so there's no route to look a name up on.
@@ -178,7 +178,7 @@ def require_internal_secret(view: Callable) -> Callable:
     (this instance's own SECRET_KEY, set in its .env at provision time)
     instead of a session or login. The only caller is the admin app's own
     Ask AI, reaching this over localhost to run a natural-language instruction
-    through this app's own chat tools — see pages/core.py's /internal/ai-command."""
+    through this app's own chat tools — see pages/chat.py's /internal/ai-command."""
 
     @functools.wraps(view)
     def wrapper(*args: Any, **kwargs: Any):
@@ -278,7 +278,7 @@ def role_at_least(role: str | None, minimum: str) -> bool:
 # paths — so the token-parameterized accept-invite/reset-password URLs
 # don't need special-casing the way a path-based list would. Every route
 # requires a logged-in user by default (see _require_login_hook in
-# pages/core.py, which resolves the route via app.match() and checks it
+# pages/__init__.py, which resolves the route via app.match() and checks it
 # against this set); these are the handful of pages a signed-out visitor
 # genuinely needs to reach.
 PUBLIC_ROUTES = frozenset({

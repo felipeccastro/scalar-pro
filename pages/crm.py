@@ -1,6 +1,6 @@
 """Sales: the pipeline and the people in it.
 
-Customers themselves stay in pages/core.py — they're Core's `Client` and
+Customers themselves stay in pages/clients.py — they're Core's `Client` and
 every part of the app touches them. What lives here is what turns a customer
 list into a pipeline: opportunities, and the directory of people who own
 them.
@@ -20,7 +20,7 @@ from models import (
     Task,
     User,
 )
-from pages.core import _active_clients, _linked_notes, _load_activity, _load_attachments, _load_comments, _people
+from pages._shared import _active_clients, _linked_notes, _load_activity, _load_attachments, _load_comments, _people
 from utils import (
     current_user,
     flash,

@@ -1,6 +1,6 @@
 """Operations: projects and the promises people made.
 
-Tasks stay in pages/core.py (they're Core's, and the kanban board belongs
+Tasks stay in pages/tasks.py (they're Core's, and the kanban board belongs
 with them). This file owns the two things that make tasks legible at
 company scale: the project they belong to, and the commitment someone made
 about them.
@@ -20,7 +20,7 @@ from models import (
     PROJECT_STATUSES,
     Task,
 )
-from pages.core import (
+from pages._shared import (
     _active_clients,
     _linked_notes,
     _load_activity,

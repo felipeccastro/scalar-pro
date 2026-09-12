@@ -49,11 +49,14 @@ through pages/*.py is a feature Ask AI and MCP can't help with.
 
 ## Where things go
 
-Pro is Core plus four page files, all under `pages/` — flat modules, no
-per-feature folders: `pages/dashboard.py`, `crm.py`, `ops.py`, `capture.py`.
-`pages/__init__.py`'s `register()` imports each one for its route-registering
-side effects; routes register through the same `@app.route` decorators
-`pages/core.py` uses. Adding one is: create the file, add its name to `PAGES`.
+Pro is Core's page files (`attachments.py`, `auth.py`, `chat.py`, `clients.py`,
+`comments.py`, `notifications.py`, `settings.py`, `tasks.py` — same names,
+same split, as Core's own `pages/` package) plus Pro's own four: `dashboard.py`,
+`crm.py`, `ops.py`, `capture.py`. All thirteen are flat modules under `pages/`,
+no per-feature folders. `pages/__init__.py` imports each one directly (`from .
+import (...)`, alphabetical) for its route-registering side effects; routes
+register through the same `@app.route` decorators everywhere. Adding one is:
+create the file, add its name to that import list.
 
 Two rules keep that from rotting:
 
@@ -66,13 +69,17 @@ Two rules keep that from rotting:
   `templates/crm/opportunities_list.html`, rendered as
   `render("crm/opportunities_list.html")`. `TEMPLATE_PATH` is a flat list
   searched in order, so without the prefix two page files can't both have a
-  `list.html` and which one wins depends on registration order.
+  `list.html` and which one wins depends on registration order. The nine
+  Core-derived files are the exception: their templates carry no such prefix,
+  same as in Core itself.
 
-Core's routes (auth, customers, tasks, comments, attachments, chat) stay in
-`pages/core.py`, along with the shared helpers the other four import from it
-(`_load_comments`, `_active_clients`, `_people`, `_open_projects`, …) —
-`app.py` imports `pages.core` directly, before calling `pages.register()`,
-since those four depend on it already being loaded.
+`pages/_shared.py` holds the handful of query/redirect helpers used by more
+than one page file (`_load_comments`, `_active_clients`, `_people`,
+`_open_projects`, `_redirect_to_subject`, …) — `dashboard.py`, `crm.py`,
+`ops.py` and `capture.py` import straight from it (`from pages._shared import
+...`) rather than from whichever route module happened to define one first.
+A helper only one file uses stays local to that file instead (see
+`settings.py`'s own `_team_members()`).
 
 ## Derived state lives in insights.py
 
@@ -170,7 +177,7 @@ will write". Widen it deliberately, never by adding a passthrough.
   redirect, the activity feed and the note's linked-records list all resolve
   through it.
 - **Every route requires a logged-in user by default** — enforced by a
-  `before_request` hook (`_require_login_hook` in `pages/core.py`), not a
+  `before_request` hook (`_require_login_hook` in `pages/__init__.py`), not a
   per-route decorator. A new route needs *no* annotation to be protected.
   If it must be reachable by a signed-out visitor (a new auth-flow page,
   say), add its `name=` to `PUBLIC_ROUTES` in `utils.py` — forgetting this

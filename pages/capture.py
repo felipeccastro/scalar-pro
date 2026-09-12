@@ -16,7 +16,7 @@ from bottle import request
 
 from app import app, render
 from models import Decision, Note, NoteLink, Person
-from pages.core import _load_activity, _load_comments
+from pages._shared import _load_activity, _load_comments
 from utils import current_user, flash, record_activity, redirect, url_for
 import ai
 import insights

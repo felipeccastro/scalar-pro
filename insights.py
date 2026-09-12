@@ -55,12 +55,12 @@ ATTENTION_LIMIT = 6
 # Subject registry — the one place that maps a subject_type to its model,
 # detail route and display label. Comment/Attachment/Activity/NoteLink are all
 # generic over (subject_type, subject_id), so anything that has to turn one
-# back into a link or a name goes through here: pages/core.py's post-comment
+# back into a link or a name goes through here: pages/comments.py's post-comment
 # redirect, the activity feed, and the note's "what came out of this" list.
 # ---------------------------------------------------------------------------
 
 #  "badge" is the two-letter mark quick search's palette shows next to a hit
-#  (see search_palette() in pages/core.py) — two letters because a single
+#  (see search_palette() in pages/palette.py) — two letters because a single
 #  initial collides twice over (Customer/Commitment, Person/Project).
 #  "list_query" is an extra query string subject_url() adds when landing on a
 #  list rather than a detail page, for the one case (commitments) where the

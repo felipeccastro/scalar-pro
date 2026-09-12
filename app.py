@@ -240,12 +240,9 @@ def _server_error(_error: HTTPError):
 # Route registration lives in pages/, imported for its side effects only —
 # every view does `from app import app` and decorates directly (no
 # blueprints, to keep the whole app in flat files per the file-count
-# budget). core.py must be imported first: dashboard.py/crm.py/ops.py/
-# capture.py each import shared helpers from it. Both imports must happen
-# after `app`/`render`/hooks exist above. See pages/__init__.py.
-import pages.core  # noqa: E402,F401
-
-pages.register()
+# budget). Must happen after `app`/`render`/hooks exist above; pages/__init__.py
+# itself does the rest (hooks, then each feature module) — see that file.
+import pages  # noqa: E402,F401
 
 
 if __name__ == "__main__":

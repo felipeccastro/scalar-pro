@@ -344,7 +344,7 @@ def _by_name(rows: dict, name: str | None):
 
 def seed_demo_data(owner: User) -> None:
     """Populate a fresh instance. Called once, right after the first owner
-    registers (pages/core.py: register_owner_submit) — not from ensure_schema(),
+    registers (pages/auth.py: register_owner_submit) — not from ensure_schema(),
     since it needs a real User to attribute rows to.
 
     Idempotent by refusing to run twice: if there's already a Person, assume
