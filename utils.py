@@ -342,6 +342,13 @@ def flash(message: str, category: str = "info") -> None:
     sess = get_session()
     flashes = sess.setdefault("_flashes", [])
     flashes.append({"message": message, "category": category})
+    # Cap accumulation: a client that never renders a page between hits (a
+    # script hammering a form that flashes on every POST — e.g. probing a
+    # rate-limited /login or /forgot-password) would otherwise grow this
+    # list, and the session cookie it's packed into, without bound until
+    # set_cookie() starts raising. Keep only the most recent few; nobody
+    # reads a wall of stacked toasts anyway.
+    del flashes[:-5]
 
 
 def get_flashed_messages() -> list[dict]:

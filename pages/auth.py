@@ -9,6 +9,7 @@ from bottle import request
 
 from app import app, render
 from models import Invite, PasswordReset, TeamMember, User, seed_demo_data
+from ratelimit import RateLimiter, client_ip
 from utils import (
     Mailer,
     MailerError,
@@ -23,6 +24,15 @@ from utils import (
     url_for,
     verify_password,
 )
+
+# Per-IP and per-email sliding windows, checked together so neither a single
+# IP nor a single targeted account can be hammered past these limits — an
+# attacker spraying one password across many emails is still capped by IP,
+# and one rotated through many IPs is still capped by email.
+_login_ip_limit = RateLimiter(max_hits=10, window_seconds=900)    # 10 / 15 min / IP
+_login_email_limit = RateLimiter(max_hits=5, window_seconds=900)  # 5 / 15 min / email
+_reset_ip_limit = RateLimiter(max_hits=5, window_seconds=900)     # 5 / 15 min / IP
+_reset_email_limit = RateLimiter(max_hits=3, window_seconds=900)  # 3 / 15 min / email
 
 
 @app.route("/register", method="GET", name="register_owner")
@@ -64,6 +74,9 @@ def login_form():
 def login_submit():
     email = (request.forms.get("email") or "").strip().lower()
     password = request.forms.get("password") or ""
+    if _login_ip_limit.hit(client_ip()) or _login_email_limit.hit(email or "unknown"):
+        flash("Too many sign-in attempts. Please wait a few minutes and try again.", "error")
+        redirect(url_for("login"))
     try:
         user = User.get(User.email == email)
     except User.DoesNotExist:
@@ -140,25 +153,31 @@ def forgot_password_form():
 
 @app.route("/forgot-password", method="POST", name="forgot_password_submit")
 def forgot_password_submit():
+    # Throttle the endpoint per IP first; only then per target email.
+    if _reset_ip_limit.hit(client_ip()):
+        flash("Too many requests. Please wait a few minutes and try again.", "error")
+        redirect(url_for("forgot_password"))
+
     email = (request.forms.get("email") or "").strip().lower()
-    try:
-        user = User.get(User.email == email)
-    except User.DoesNotExist:
-        user = None
-    # Always show the same message, whether or not the address exists —
-    # don't leak account existence.
-    if user is not None:
-        PasswordReset.update(used=True).where(
-            (PasswordReset.user == user) & (PasswordReset.used == False)  # noqa: E712
-        ).execute()
-        token = secrets.token_urlsafe(32)
-        expires_at = datetime.datetime.now() + datetime.timedelta(minutes=30)
-        PasswordReset.create(user=user, token=token, expires_at=expires_at)
-        reset_url = request.url.split("/forgot-password", 1)[0] + url_for("reset_password", token=token)
+    # Always show the same message, whether or not the address exists (or
+    # is itself being throttled) — don't leak account existence.
+    if email and not _reset_email_limit.hit(email):
         try:
-            Mailer.send_password_reset(email=email, reset_url=reset_url, ttl_minutes=30)
-        except MailerError:
-            pass  # still show the generic success message below
+            user = User.get(User.email == email)
+        except User.DoesNotExist:
+            user = None
+        if user is not None:
+            PasswordReset.update(used=True).where(
+                (PasswordReset.user == user) & (PasswordReset.used == False)  # noqa: E712
+            ).execute()
+            token = secrets.token_urlsafe(32)
+            expires_at = datetime.datetime.now() + datetime.timedelta(minutes=30)
+            PasswordReset.create(user=user, token=token, expires_at=expires_at)
+            reset_url = request.url.split("/forgot-password", 1)[0] + url_for("reset_password", token=token)
+            try:
+                Mailer.send_password_reset(email=email, reset_url=reset_url, ttl_minutes=30)
+            except MailerError:
+                pass  # still show the generic success message below
     flash("If that email has an account, a reset link is on its way.", "success")
     redirect(url_for("login"))
 
