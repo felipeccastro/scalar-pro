@@ -26,10 +26,9 @@ run:
 # too: they're SQLite's in-flight journal, not data, and get rebuilt from
 # app.db the moment anything reopens it.
 #
-# dist/pro.zip is committed to git (see the `!dist/pro.zip` line in
-# .gitignore) so Render's build has it without needing to run this target —
-# re-run `make dist` and commit the new zip whenever this app's source
-# changes, or the download button will silently keep serving the old code.
+# dist/ is gitignored — ../admin/routes/downloads.py runs this target itself
+# on the first production request for pro.zip and caches the result, so
+# there's nothing to remember to rebuild/commit here.
 dist:
 	mkdir -p dist
 	rm -f dist/pro.zip
