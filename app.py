@@ -30,7 +30,7 @@ sys.modules.setdefault("app", sys.modules[__name__])
 # and vendor/LICENSE.bottle.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
 
-from bottle import Bottle, HTTPError, debug as _bottle_debug, request, run, static_file, template
+from bottle import Bottle, HTTPError, debug as _bottle_debug, request, response, run, static_file, template
 
 from models import db, ensure_schema, status_label
 from utils import (
@@ -195,6 +195,38 @@ def _close_db() -> None:
             db.session_commit()
     if not db.is_closed():
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+
+@app.route("/health", name="health")
+def _health():
+    """Liveness/readiness probe for whatever's watching this process (a
+    process manager, a load balancer, admin's launcher — see
+    admin/launcher/provisioner.py's own _health_check, which currently just
+    polls `/`). 200 only if the app can actually reach its database, not
+    merely that the process is listening — a wedged/corrupted SQLite file
+    or a lock that never clears would still answer `/` (it's mostly static
+    HTML) while every real page silently 500s underneath it.
+
+    Public (see PUBLIC_ROUTES in utils.py) and exempt from the
+    pre-registration bootstrap redirect (see pages/__init__.py): a freshly
+    provisioned, team-less instance should still report whether its
+    database is reachable.
+
+    `_open_db` (an earlier before_request hook) has already connected by
+    the time this runs; SELECT 1 doesn't assume any table exists, so it
+    still catches a connection failure even on a schema that somehow never
+    finished migrating."""
+    try:
+        db.execute_sql("SELECT 1")
+    except Exception as e:
+        response.status = 503
+        return {"status": "error", "detail": str(e)}
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------

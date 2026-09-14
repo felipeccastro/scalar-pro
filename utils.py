@@ -275,6 +275,7 @@ PUBLIC_ROUTES = frozenset({
     "accept_invite", "accept_invite_submit",
     "forgot_password", "forgot_password_submit",
     "reset_password", "reset_password_submit",
+    "health",
 })
 
 

@@ -24,8 +24,12 @@ from utils import (
 
 @app.hook("before_request")
 def _bootstrap_redirect() -> None:
-    """Until the first owner account exists, every road leads to /register."""
-    if request.path == "/register" or request.path.startswith("/static/"):
+    """Until the first owner account exists, every road leads to /register.
+
+    /health is exempt too: a freshly provisioned, team-less instance should
+    still report whether its database is reachable, not bounce a health
+    check into a 200-but-meaningless /register redirect."""
+    if request.path in ("/register", "/health") or request.path.startswith("/static/"):
         return
     if not any_team_members_exist():
         redirect(url_for("register_owner"))
