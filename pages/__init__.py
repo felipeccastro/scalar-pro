@@ -70,6 +70,7 @@ def _require_login_hook() -> None:
 # Import each feature module for its route-registration side effects only.
 from . import (  # noqa: E402,F401
     attachments,
+    audit,
     auth,
     chat,
     clients,

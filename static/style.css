@@ -577,6 +577,9 @@ button.btn-primary:active, a.btn.btn-primary:active, [type="submit"].btn-primary
 .badge-active, .badge-in_progress { color: var(--warning); }
 .badge-done { color: var(--success); }
 .badge-inactive { color: var(--faint-foreground); }
+.badge-created { color: var(--success); }
+.badge-updated { color: var(--warning); }
+.badge-deleted { color: var(--danger); }
 
 .status-dot {
   display: inline-block;
@@ -774,6 +777,33 @@ button.btn-primary:active, a.btn.btn-primary:active, [type="submit"].btn-primary
 .plain-list li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: var(--space-2); }
 .plain-list li.is-unread { font-weight: var(--font-medium); }
 .plain-list li.is-unread::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--indigo-accent); flex-shrink: 0; }
+
+/* ── Audit log ──────────────────────────────────────────── */
+
+.audit-list { list-style: none; padding: 0; }
+.audit-entry {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.audit-entry-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.audit-diff { margin-top: var(--space-2); font-size: var(--text-8); }
+.audit-diff summary { color: var(--muted-foreground); cursor: pointer; }
+.audit-diff-table {
+  width: 100%;
+  margin-top: var(--space-2);
+  border-collapse: collapse;
+  font-size: var(--text-8);
+}
+.audit-diff-table th {
+  text-align: left;
+  color: var(--muted-foreground);
+  font-weight: 500;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.audit-diff-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+
+.pager { display: flex; justify-content: space-between; margin-top: var(--space-4); }
 
 /* ── Empty states ───────────────────────────────────────── */
 

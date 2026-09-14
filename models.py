@@ -10,6 +10,7 @@ zero-pip-dependency constraint (peewee + bottle only).
 from __future__ import annotations
 
 import datetime
+import json
 import os
 
 from peewee import (
@@ -50,8 +51,140 @@ def init_database() -> SqliteDatabase:
 
 
 class BaseModel(Model):
+    """`audit_trail = True` (opt-in per subclass, off by default here) makes
+    save()/delete_instance() write an AuditLog row alongside every write —
+    a full snapshot on create, a field-level diff on update, a bare marker
+    on delete. See AuditLog below (the table) and pages/audit.py (the page
+    that reads it back).
+
+    `audit_exclude` names fields that never appear in a snapshot or diff
+    even while audit_trail is on — a secret like User.password_hash should
+    never end up sitting in a log a page renders back, hashed or not."""
+
+    audit_trail = False
+    audit_exclude: frozenset[str] = frozenset()
+
     class Meta:
         database = db
+
+    def save(self, force_insert=False, only=None):
+        if not self.audit_trail:
+            return super().save(force_insert=force_insert, only=only)
+        is_new = self._pk is None or force_insert
+        # Computed *before* the real save(): peewee overwrites __data__ the
+        # instant a field is assigned (see FieldAccessor.__set__), so the old
+        # side of a diff is only ever available by asking the DB, and only
+        # until this next line replaces it.
+        changes = _audit_snapshot(self) if is_new else _audit_diff(self)
+        result = super().save(force_insert=force_insert, only=only)
+        if is_new or changes:
+            _write_audit_log(self, "created" if is_new else "updated", changes)
+        return result
+
+    def delete_instance(self, recursive=False, delete_nullable=False):
+        # Captured before the row is actually gone (cheap — everything's
+        # already in memory); written after a successful delete, so a
+        # failed one (an FK constraint, say) doesn't log a phantom.
+        changes = _audit_deletion_snapshot(self) if self.audit_trail else {}
+        result = super().delete_instance(recursive=recursive, delete_nullable=delete_nullable)
+        if self.audit_trail:
+            _write_audit_log(self, "deleted", changes)
+        return result
+
+
+def _audit_actor_id() -> int | None:
+    """Best-effort current-request user id. None outside a request (a
+    background thread, a script) rather than raising — audit metadata
+    should never be why a write fails. Imported locally: utils.py has no
+    reason to import models.py at module scope, and this would make it."""
+    try:
+        from utils import current_user
+
+        user = current_user()
+        return user.id if user else None
+    except Exception:
+        return None
+
+
+def _audit_json_safe(value):
+    """A raw field/column value, coerced into something json.dumps() can
+    take. Dates/datetimes become ISO strings; a Model instance (a
+    ForeignKeyField assigned as an object rather than a bare id) reduces to
+    its own pk, so it compares equal to the plain id __data__ holds for an
+    untouched relation and to what a fresh SELECT of the same column
+    returns."""
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return value.isoformat()
+    if isinstance(value, Model):
+        return value._pk
+    return value
+
+
+def _audit_skip(instance: Model, name: str) -> bool:
+    return name == instance._meta.primary_key.name or name in instance.audit_exclude
+
+
+def _audit_snapshot(instance: Model) -> dict:
+    """{field: {"old": None, "new": value}} for every non-excluded column on
+    a brand new row — there's no prior value to diff against, so "old" is
+    uniformly None rather than the row simply being absent from the log."""
+    return {
+        name: {"old": None, "new": _audit_json_safe(value)}
+        for name, value in instance.__data__.items()
+        if not _audit_skip(instance, name)
+    }
+
+
+def _audit_deletion_snapshot(instance: Model) -> dict:
+    """{field: {"old": value, "new": None}} for every non-excluded column —
+    the mirror of _audit_snapshot(), so a deleted row's audit entry shows
+    what's gone rather than a bare "this happened" marker with nothing to
+    show for it."""
+    return {
+        name: {"old": _audit_json_safe(value), "new": None}
+        for name, value in instance.__data__.items()
+        if not _audit_skip(instance, name)
+    }
+
+
+def _audit_diff(instance: Model) -> dict:
+    """{field: {"old": ..., "new": ...}} for exactly the non-excluded fields
+    that both changed *and* are actually dirty (peewee's own dirty_fields,
+    which is also what determines which columns the impending UPDATE
+    touches) — a reassignment back to the same value is dirty but not a
+    real change, so it's fetched, compared, and dropped rather than logged
+    as one. An excluded field (audit_exclude) is never even fetched to
+    compare — a changed password shouldn't surface as "password_hash
+    changed", either."""
+    names = [f.name for f in instance.dirty_fields if not _audit_skip(instance, f.name)]
+    if not names:
+        return {}
+    old_row = (
+        type(instance)
+        .select(*[instance._meta.combined[n] for n in names])
+        .where(instance._pk_expr())
+        .dicts()
+        .first()
+    )
+    if not old_row:
+        return {}  # the pk doesn't exist yet — force_insert masquerading as an update
+    changes = {}
+    for name in names:
+        old_value = _audit_json_safe(old_row.get(name))
+        new_value = _audit_json_safe(instance.__data__.get(name))
+        if old_value != new_value:
+            changes[name] = {"old": old_value, "new": new_value}
+    return changes
+
+
+def _write_audit_log(instance: Model, action: str, changes: dict) -> None:
+    AuditLog.create(
+        subject_type=type(instance).__name__.lower(),
+        subject_id=instance._pk,
+        action=action,
+        changes_json=json.dumps(changes),
+        actor=_audit_actor_id(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +194,8 @@ class BaseModel(Model):
 
 
 class User(BaseModel):
+    audit_trail = True
+    audit_exclude = frozenset({"password_hash"})
     id = AutoField()
     email = CharField(unique=True)
     password_hash = CharField()
@@ -104,6 +239,7 @@ class PasswordReset(BaseModel):
 
 
 class Client(BaseModel):
+    audit_trail = True
     id = AutoField()
     name = CharField()
     email = CharField(default="")
@@ -122,6 +258,7 @@ class Client(BaseModel):
 
 
 class Task(BaseModel):
+    audit_trail = True
     id = AutoField()
     title = CharField()
     description = TextField(default="")  # plain text — rendered with white-space: pre-wrap
@@ -215,6 +352,30 @@ class Activity(BaseModel):
         indexes = ((("subject_type", "subject_id", "created_at"), False),)
 
 
+class AuditLog(BaseModel):
+    """One row per audited create/update/delete — written automatically by
+    BaseModel.save()/delete_instance() above for any model that opts in
+    with `audit_trail = True` (Client, Task), never by a route calling
+    something directly the way Activity's record_activity() is.
+
+    `changes_json` is `{field: {"old": ..., "new": ...}}` — "old" is
+    uniformly None on create, "new" is uniformly None on delete, and only
+    the fields that actually changed appear on an update. See
+    pages/audit.py for the page that renders this back."""
+
+    id = AutoField()
+    subject_type = CharField()
+    subject_id = IntegerField()
+    action = CharField()  # created | updated | deleted
+    changes_json = TextField(default="{}")
+    actor = ForeignKeyField(User, backref="audit_logs", null=True, on_delete="SET NULL")
+    created_at = DateTimeField(default=datetime.datetime.now)
+
+    class Meta:
+        database = db
+        indexes = ((("subject_type", "subject_id", "created_at"), False),)
+
+
 class Reminder(BaseModel):
     """A one-shot reminder, fired by jobs.py's scheduler once `remind_at`
     passes: creates a Notification for `user` and emails them. Created only
@@ -296,6 +457,7 @@ ALL_MODELS = [
     Comment,
     Attachment,
     Activity,
+    AuditLog,
     Notification,
     Reminder,
     ChatThread,
