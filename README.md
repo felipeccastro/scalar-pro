@@ -1,10 +1,10 @@
-# Binders Pro
+# Scalar Pro
 
 A small startup operating system: the customers you're selling to, the work
 you owe them, the promises people made, and the decisions you took — with a
 box on the dashboard that turns a pasted meeting note into all four.
 
-Built on [Binders Core](../core): same Bottle + peewee + SQLite architecture,
+Built on [Scalar Core](../core): same Bottle + peewee + SQLite architecture,
 same zero-dependency constraint, same conventions. Core is Clients and Tasks;
 Pro adds People, Projects, Opportunities, Commitments, Decisions and Notes,
 and two screens that read the whole company back to you.
@@ -24,7 +24,7 @@ overdue, at risk, gone quiet, or owned by nobody, sorted by how long it's been
 that way. Plus a table of who promised what this week.
 
 **Capture** — the box at the top of the dashboard. Paste a meeting note, an
-email, or a brain dump; Binders proposes the records worth keeping, you tick
+email, or a brain dump; Scalar proposes the records worth keeping, you tick
 the ones you want, and they appear across the customer, the pipeline and the
 commitments — each linked back to the text it came from.
 

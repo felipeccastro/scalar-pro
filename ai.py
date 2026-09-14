@@ -1957,7 +1957,7 @@ def _describe_tool_call(name: str, args: dict) -> str:
 # Chat
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """You are an assistant embedded in Binders Pro, the operating system a small \
+SYSTEM_PROMPT = """You are an assistant embedded in Scalar Pro, the operating system a small \
 company runs on. There is only one team using this app — no workspaces, no other tenants.
 
 The records are: Customers (stored as clients: name, email, phone, company, status \

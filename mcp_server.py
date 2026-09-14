@@ -1,4 +1,4 @@
-"""MCP (Model Context Protocol) server for Binders Pro — stdio transport.
+"""MCP (Model Context Protocol) server for Scalar Pro — stdio transport.
 
 Hand-rolled JSON-RPC 2.0 over stdin/stdout, per MCP's stdio transport spec
 (https://modelcontextprotocol.io) — not the `mcp` pip package. That keeps
@@ -28,7 +28,7 @@ same convention seed.py uses for its own standalone `__main__` block.
 Run directly — this is the entrypoint an MCP client launches as a
 subprocess, e.g. in Claude Desktop's config:
 
-    { "mcpServers": { "binders-pro": {
+    { "mcpServers": { "scalar-pro": {
         "command": "python3", "args": ["/absolute/path/to/pro/mcp_server.py"]
     } } }
 
@@ -78,7 +78,7 @@ from models import User, db, ensure_schema  # noqa: E402
 import ai  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "binders-pro", "version": "1.0.0"}
+SERVER_INFO = {"name": "scalar-pro", "version": "1.0.0"}
 
 
 def _actor() -> User | None:
@@ -155,7 +155,7 @@ def _handle(msg: dict) -> dict | None:
 def main() -> None:
     ensure_schema()
     db.connect(reuse_if_open=True)
-    print("Binders Pro MCP server ready (stdio).", file=sys.stderr, flush=True)
+    print("Scalar Pro MCP server ready (stdio).", file=sys.stderr, flush=True)
     try:
         for raw in sys.stdin:
             line = raw.strip()

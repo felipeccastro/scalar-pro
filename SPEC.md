@@ -1,4 +1,4 @@
-# Binders Pro — Startup OS Demo Spec
+# Scalar Pro — Startup OS Demo Spec
 
 # Product goal
 
@@ -222,7 +222,7 @@ The COO should be able to answer:
 
 # 3. Text → Business State
 
-This is the Binders-specific magic.
+This is the Scalar-specific magic.
 
 Create a prominent action:
 
@@ -234,7 +234,7 @@ Example:
 
 > Met with Acme today. They want the enterprise plan at around $50k/year. They need SSO before signing. João will investigate the integration and I'll send a proposal Friday. They're also talking to Competitor X.
 
-Binder analyzes it and proposes:
+Scalar analyzes it and proposes:
 
 # Customer
 
@@ -317,7 +317,7 @@ Search everything.
 
 A single search box:
 
-> Search Binders...
+> Search Scalar...
 
 Search:
 
@@ -479,7 +479,7 @@ I'd structure the demo around **one story**, not feature tours.
 
 # Scene 1 — CEO
 
-Open Binders.
+Open Scalar.
 
 > “I haven't looked at the company yet today.”
 
@@ -520,7 +520,7 @@ Open Capture.
 
 Paste the messy Acme meeting.
 
-Binders extracts the business state.
+Scalar extracts the business state.
 
 Confirm.
 

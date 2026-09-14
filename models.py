@@ -1,4 +1,4 @@
-"""Peewee models for Binders Pro.
+"""Peewee models for Scalar Pro.
 
 Single-tenant: there is no Workspace concept at all — one instance == one
 customer. Schema changes ship as idempotent "does this column exist yet"

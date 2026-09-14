@@ -15,7 +15,7 @@
   %if capture['note']:
     %n = len(capture['proposal'])
     <div class="capture-head">
-      <h2 class="capture-title">Binders found {{n}} record{{'' if n == 1 else 's'}}.</h2>
+      <h2 class="capture-title">Scalar found {{n}} record{{'' if n == 1 else 's'}}.</h2>
       <p class="capture-sub">From “{{capture['note'].title}}”. Untick anything you don't want.</p>
     </div>
     <form method="post" action="{{url_for('capture_confirm', note_id=capture['note'].id)}}">
@@ -47,7 +47,7 @@
   %else:
     <div class="capture-head">
       <h2 class="capture-title">What happened today?</h2>
-      <p class="capture-sub">Paste a meeting note, an email, or a brain dump — Binders proposes the records to keep.</p>
+      <p class="capture-sub">Paste a meeting note, an email, or a brain dump — Scalar proposes the records to keep.</p>
     </div>
     <form method="post" action="{{url_for('capture_read')}}">
       <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">

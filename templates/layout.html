@@ -20,9 +20,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Binders Pro">
+  <meta name="apple-mobile-web-app-title" content="Scalar Pro">
   <meta name="theme-color" content="#0a0a0b">
-  <!-- Apply the saved theme (localStorage 'binders-pro:theme', set live by
+  <!-- Apply the saved theme (localStorage 'scalar-pro:theme', set live by
        the Settings page) before the stylesheets below load, so the page
        paints in the right palette from the first frame instead of flashing
        dark then switching to light. Must stay inline/synchronous and come
@@ -31,7 +31,7 @@
   <script>
     (function () {
       try {
-        var t = localStorage.getItem('binders-pro:theme');
+        var t = localStorage.getItem('scalar-pro:theme');
         if (t !== 'light' && t !== 'dark') t = 'dark';
         document.documentElement.style.colorScheme = t;
         document.documentElement.style.background = (t === 'light') ? '#f7f7f8' : '#0a0a0b';
@@ -64,7 +64,7 @@
     <aside class="sidebar">
       <div class="sidebar-logo">
         <div class="logo-mark">{{(user.name or "?")[0].upper()}}</div>
-        <span class="ws-name">Binders Pro</span>
+        <span class="ws-name">Scalar Pro</span>
         <label for="nav-toggle" class="sidebar-close" aria-label="Close menu">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </label>
@@ -280,7 +280,7 @@
   <div class="auth-shell">
     <div class="auth-brand">
       <div class="logo-mark">B</div>
-      <span>Binders Pro</span>
+      <span>Scalar Pro</span>
     </div>
     %include('_toasts', flashes=get_flashed_messages())
     {{!base}}

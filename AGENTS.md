@@ -1,4 +1,4 @@
-# AGENTS.md — working on Binders Pro
+# AGENTS.md — working on Scalar Pro
 
 Guidance for whoever (human or agent) changes this project next.
 

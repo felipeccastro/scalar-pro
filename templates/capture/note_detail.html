@@ -22,7 +22,7 @@
 
     %if proposal:
       <h2>Waiting on you</h2>
-      <p class="muted">Binders read this note and proposed {{len(proposal)}} record{{'' if len(proposal) == 1 else 's'}}.</p>
+      <p class="muted">Scalar read this note and proposed {{len(proposal)}} record{{'' if len(proposal) == 1 else 's'}}.</p>
       <p><a class="button btn btn-primary" href="{{url_for('dashboard', _query={'review': note.id})}}">Review them</a></p>
     %end
 

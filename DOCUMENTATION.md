@@ -1,4 +1,4 @@
-# Binders Pro — Feature Documentation
+# Scalar Pro — Feature Documentation
 
 This describes what's actually built, for a person (or an agent) picking up
 this project without prior context. Code comments cover *why* a given line
@@ -142,7 +142,7 @@ no JavaScript, and the review panel opens in the same slot so nothing scrolls.
 3. **Review** — the same panel comes back showing the proposal as a ledger,
    one row per proposed record with a four-letter type tag (`CUST` `WHO`
    `DEAL` `PROJ` `TASK` `PROM` `DECN`) and a ticked checkbox. Header reads
-   "Binders found 6 records."; the button reads **Create 6 records**. The
+   "Scalar found 6 records."; the button reads **Create 6 records**. The
    proposal lives on the note row and the state is a URL (`/?review=<id>`),
    so a refresh loses nothing.
 4. **Create** — only ticked records are created. Customers and people are
@@ -365,7 +365,7 @@ can call Pro's data directly instead of through the `/chat` UI. Run as a
 subprocess, not as part of the web app:
 
 ```json
-{ "mcpServers": { "binders-pro": {
+{ "mcpServers": { "scalar-pro": {
     "command": "python3", "args": ["/absolute/path/to/pro/mcp_server.py"]
 } } }
 ```
@@ -488,7 +488,7 @@ notification still goes out either way.
 ## Interface & behavior
 
 - **Theme**: dark by default; the Settings toggle writes
-  `localStorage['binders-pro:theme']` and sets `document.documentElement
+  `localStorage['scalar-pro:theme']` and sets `document.documentElement
   .style.colorScheme`. `style.css`'s `:root` tokens are all defined with CSS
   `light-dark()`, which resolves off that `color-scheme` value — flipping it
   is the entire retheme, no second `[data-theme]` override block to keep in
