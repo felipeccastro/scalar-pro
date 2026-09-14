@@ -156,6 +156,12 @@ def render(name: str, **kwargs) -> str:
 @app.hook("before_request")
 def _open_db() -> None:
     db.connect(reuse_if_open=True)
+    # Every write a POST makes should land together: if a handler creates
+    # several rows and a later one fails, the earlier ones shouldn't survive
+    # as an orphaned partial write. GETs don't get one — they're read-only,
+    # and holding a transaction open for a whole page render buys nothing.
+    if request.method == "POST":
+        db.session_start()
 
 
 @app.hook("before_request")
@@ -170,6 +176,23 @@ def _save_session_hook() -> None:
 
 @app.hook("after_request")
 def _close_db() -> None:
+    """Resolve this request's transaction (see _open_db above), then close
+    the connection.
+
+    after_request runs unconditionally — after a normal response, after an
+    abort()/redirect() (both just raise HTTPResponse, a controlled jump, not
+    a failure), and after a genuine unhandled exception alike: Bottle's
+    _handle() fires this hook from a `finally`, before the exception is
+    turned into a 500 by the outer handler. Only that last case should roll
+    back rather than commit, and it's the one Python guarantees
+    sys.exc_info() still reports here — a caught-and-suppressed HTTPResponse
+    has already cleared it by the time its own `finally` runs, verified
+    against this exact try/except/finally shape."""
+    if db.in_transaction():
+        if sys.exc_info()[0] is not None:
+            db.session_rollback()
+        else:
+            db.session_commit()
     if not db.is_closed():
         db.close()
 
