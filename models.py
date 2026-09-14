@@ -6,9 +6,10 @@ checks run from ensure_schema() at startup (see the bottom of this file) —
 there is no migrations/ directory and no peewee-migrate dependency, per the
 zero-pip-dependency constraint (peewee + bottle only).
 
-Pro keeps Core's whole model set unchanged and adds the seven records a
-company actually runs on: Person, Project, Opportunity, Commitment, Decision,
-Note and NoteLink. Every dashboard in this app is a query over those plus
+Pro keeps Core's whole model set unchanged and adds the records a company
+actually runs on: Person, Project and Opportunity, plus CaptureDraft — the
+scratch row Capture uses to hold a paste between reading it and confirming
+what came out. Every dashboard in this app is a query over those plus
 Client/Task — nothing is precomputed and no "is_overdue" flag is stored, so a
 demo seeded three months ago still reads correctly today (see insights.py).
 """
@@ -225,92 +226,23 @@ class Opportunity(BaseModel):
         indexes = ((("stage",), False),)
 
 
-class Commitment(BaseModel):
-    """Someone said they'd do a thing. A task with a promise attached.
-
-    Note what's missing: an "overdue" status. The spec lists one, but storing
-    it would mean a nightly job and a demo that rots. Overdue is
-    `due_date < today and status == "open"`, computed at read time in
-    insights.py."""
-
-    id = AutoField()
-    description = TextField()
-    person = ForeignKeyField(Person, backref="commitments", null=True, on_delete="SET NULL")
-    due_date = DateField(null=True)
-    status = CharField(default="open")  # open | done | cancelled
-    source = CharField(default="manual")  # manual | meeting | email | capture
-    customer = ForeignKeyField(Client, backref="commitments", null=True, on_delete="SET NULL")
-    project = ForeignKeyField(Project, backref="commitments", null=True, on_delete="SET NULL")
-    created_by = ForeignKeyField(User, backref="created_commitments", null=True, on_delete="SET NULL")
-    created_at = DateTimeField(default=datetime.datetime.now)
-    updated_at = DateTimeField(default=datetime.datetime.now)
-
-    class Meta:
-        database = db
-        indexes = (
-            (("status", "due_date"), False),
-            (("person",), False),
-        )
-
-
-class Decision(BaseModel):
-    """What we decided, and why. `rationale` is the reason the whole model
-    exists — a decision without its "why" is just a status change."""
+class CaptureDraft(BaseModel):
+    """Capture's own scratch row: the pasted text, and the AI proposal
+    awaiting review, between the `/capture` POST and the confirm/discard that
+    resolves it. Not a browsable record — there is no list or detail page for
+    these; they exist only so a half-finished review survives a page refresh
+    (the draft lives on the row, not in the session) and so
+    `capture_extract.create_records()` has something to work from once
+    someone ticks the boxes."""
 
     id = AutoField()
-    title = CharField()
-    decision = TextField(default="")
-    rationale = TextField(default="")
-    owner = ForeignKeyField(Person, backref="owned_decisions", null=True, on_delete="SET NULL")
-    decided_on = DateField(null=True)
-    review_on = DateField(null=True)
-    status = CharField(default="decided")  # decided | under_review | superseded
-    customer = ForeignKeyField(Client, backref="decisions", null=True, on_delete="SET NULL")
-    project = ForeignKeyField(Project, backref="decisions", null=True, on_delete="SET NULL")
-    created_by = ForeignKeyField(User, backref="created_decisions", null=True, on_delete="SET NULL")
-    created_at = DateTimeField(default=datetime.datetime.now)
-    updated_at = DateTimeField(default=datetime.datetime.now)
-
-
-class Note(BaseModel):
-    """The raw text layer, and the thing Capture writes first.
-
-    Structured records don't replace the text they came from — the note is
-    kept verbatim and every record extracted from it points back here via
-    NoteLink. `proposal_json` holds the extraction awaiting review, which is
-    why a half-finished Capture survives a page refresh: the draft lives on
-    the row, not in the session."""
-
-    id = AutoField()
-    title = CharField(default="")
+    title = CharField(default="")  # first line of body, shown on the dashboard panel
     body = TextField()
-    author = ForeignKeyField(Person, backref="notes", null=True, on_delete="SET NULL")
-    occurred_on = DateField(null=True)
-    tags = CharField(default="")  # comma-separated, freeform
     proposal_json = TextField(default="")  # AI extraction awaiting review; "" once resolved
     captured = BooleanField(default=False)  # True once its proposal has been accepted or discarded
-    created_by = ForeignKeyField(User, backref="created_notes", null=True, on_delete="SET NULL")
+    created_by = ForeignKeyField(User, backref="capture_drafts", null=True, on_delete="SET NULL")
     created_at = DateTimeField(default=datetime.datetime.now)
     updated_at = DateTimeField(default=datetime.datetime.now)
-
-
-class NoteLink(BaseModel):
-    """Which records came out of which note. Generic over subject the same way
-    Comment/Attachment/Activity are (subject_type + subject_id), so linking a
-    new record type needs no schema change at all."""
-
-    id = AutoField()
-    note = ForeignKeyField(Note, backref="links", on_delete="CASCADE")
-    subject_type = CharField()
-    subject_id = IntegerField()
-    created_at = DateTimeField(default=datetime.datetime.now)
-
-    class Meta:
-        database = db
-        indexes = (
-            (("note",), False),
-            (("subject_type", "subject_id"), False),
-        )
 
 
 # ---------------------------------------------------------------------------
