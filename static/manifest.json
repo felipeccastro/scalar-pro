@@ -1,6 +1,6 @@
 {
-  "name": "Scalar Pro",
-  "short_name": "Pro",
+  "name": "Scalar Core",
+  "short_name": "Core",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

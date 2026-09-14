@@ -1,4 +1,4 @@
-"""Clients (Pro's customers): list, create, detail, update, archive."""
+"""Client list/detail/create/update/archive."""
 
 from __future__ import annotations
 
@@ -7,11 +7,9 @@ import datetime
 from bottle import request
 
 from app import app, render
-from models import CLIENT_STATUSES, Client, Commitment, Decision, Opportunity, Project, Task
-from pages._shared import _linked_notes, _load_activity, _load_attachments, _load_comments
+from models import CLIENT_STATUSES, Client, Task
+from pages._shared import _load_activity, _load_attachments, _load_comments
 from utils import current_user, flash, record_activity, redirect, url_for
-import insights
-import search
 
 
 @app.route("/clients", method="GET", name="clients_list")
@@ -42,7 +40,6 @@ def clients_create():
         created_by=current_user(),
     )
     record_activity("client", client.id, current_user(), "created")
-    search.index_entity(client)
     flash(f"Added {client.name}.", "success")
     redirect(url_for("client_detail", client_id=client.id))
 
@@ -56,32 +53,11 @@ def client_detail(client_id: int):
     tasks = list(
         Task.select().where((Task.client == client) & (Task.archived_at.is_null(True))).order_by(Task.position)
     )
-    # Everything else this customer touches. This page is where Capture's
-    # payoff lands — paste a meeting note, confirm, come back here, and the
-    # deal, the promises and the note itself are all sitting on the record.
     return render(
         "client_detail.html",
         client=client,
         tasks=tasks,
         statuses=CLIENT_STATUSES,
-        opportunities=list(
-            Opportunity.select()
-            .where((Opportunity.customer == client) & Opportunity.archived_at.is_null(True))
-            .order_by(Opportunity.value.desc())
-        ),
-        projects=list(
-            Project.select()
-            .where((Project.customer == client) & Project.archived_at.is_null(True))
-            .order_by(Project.due_date)
-        ),
-        commitments=list(
-            Commitment.select().where(Commitment.customer == client).order_by(Commitment.due_date)
-        ),
-        decisions=list(
-            Decision.select().where(Decision.customer == client).order_by(Decision.decided_on.desc())
-        ),
-        notes=_linked_notes("client", client.id),
-        insights=insights,
         comments=_load_comments("client", client.id),
         attachments=_load_attachments("client", client.id),
         activity=_load_activity("client", client.id),
@@ -103,7 +79,6 @@ def client_update(client_id: int):
     client.updated_at = datetime.datetime.now()
     client.save()
     record_activity("client", client.id, current_user(), "updated")
-    search.index_entity(client)
     flash("Client updated.", "success")
     redirect(url_for("client_detail", client_id=client.id))
 

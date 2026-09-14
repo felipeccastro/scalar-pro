@@ -6,7 +6,7 @@
 # instance runs under (see ../admin/launcher/provisioner.py), just invoked
 # locally instead of by the launcher.
 HOST ?= 0.0.0.0
-PORT ?= 8001
+PORT ?= 8000
 WORKERS ?= 1
 
 .PHONY: run dist
@@ -17,26 +17,26 @@ run:
 		--reload \
 		--max-requests 1000
 
-# Package a ready-to-run copy of this app for the landing page's "Buy Once"
-# button (../admin/routes/downloads.py serves the result) — the whole
-# directory, seeded app.db included, so unzip-and-run shows the demo company
-# immediately. .env is excluded: it's gitignored and per-install already
-# (see .env.example) — without one, utils.py falls back to its documented
-# dev SECRET_KEY, same as a fresh git clone. WAL sidecar files are excluded
-# too: they're SQLite's in-flight journal, not data, and get rebuilt from
-# app.db the moment anything reopens it.
+# Package a ready-to-run copy of this app for the landing page's
+# "Download & Self-Host" button (../admin/routes/downloads.py serves the
+# result) — the whole directory, seeded app.db included, so unzip-and-run
+# shows the demo company immediately. .env is excluded: it's gitignored and
+# per-install already (see .env.example) — without one, utils.py falls back
+# to its documented dev SECRET_KEY, same as a fresh git clone. WAL sidecar
+# files are excluded too: they're SQLite's in-flight journal, not data, and
+# get rebuilt from app.db the moment anything reopens it.
 #
 # dist/ is gitignored — ../admin/routes/downloads.py runs this target itself
-# on the first production request for pro.zip and caches the result, so
+# on the first production request for core.zip and caches the result, so
 # there's nothing to remember to rebuild/commit here.
 dist:
 	mkdir -p dist
-	rm -f dist/pro.zip
-	cd .. && zip -rq pro/dist/pro.zip pro \
-		-x 'pro/.env' \
-		-x 'pro/__pycache__/*' -x 'pro/*/__pycache__/*' -x '*.pyc' \
-		-x 'pro/app.db-shm' -x 'pro/app.db-wal' \
-		-x 'pro/dist/*'
-	@echo "Built dist/pro.zip"
+	rm -f dist/core.zip
+	cd .. && zip -rq core/dist/core.zip core \
+		-x 'core/.env' \
+		-x 'core/__pycache__/*' -x 'core/*/__pycache__/*' -x '*.pyc' \
+		-x 'core/app.db-shm' -x 'core/app.db-wal' \
+		-x 'core/dist/*'
+	@echo "Built dist/core.zip"
 
 .DEFAULT_GOAL := run

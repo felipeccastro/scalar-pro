@@ -1,6 +1,6 @@
 %rebase('layout', title=client.name, back_url=url_for('clients_list'))
 <div class="page-header">
-  <a class="page-header-back" href="{{url_for('clients_list')}}">&larr; Customers</a>
+  <a class="page-header-back" href="{{url_for('clients_list')}}">&larr; Clients</a>
   <h1>{{client.name}}</h1>
 </div>
 
@@ -29,56 +29,8 @@
 
     <form method="post" action="{{url_for('client_archive', client_id=client.id)}}" class="inline-form">
       <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
-      <button class="btn btn-danger" type="submit" onclick="return confirm('Archive this customer?')">Archive customer</button>
+      <button class="btn btn-danger" type="submit" onclick="return confirm('Archive this client?')">Archive client</button>
     </form>
-
-    %# Everything this customer touches, in the order it matters commercially:
-    %# what we might win, what we're building, who promised what, what we
-    %# decided, what we said. Capture's payoff is that this section fills in.
-    <h2>Opportunities</h2>
-    %if opportunities:
-      <ul class="plain-list">
-        %for o in opportunities:
-          <li>
-            <a href="{{url_for('opportunity_detail', opportunity_id=o.id)}}">{{o.title}}</a>
-            <span class="deal-value">{{insights.money(o.value)}}</span>
-            <span class="badge badge-{{o.stage}}"><i class="dot"></i>{{status_label(o.stage)}}</span>
-          </li>
-        %end
-      </ul>
-    %else:
-      <p class="muted">No open deals with this customer.</p>
-    %end
-
-    <h2>Projects</h2>
-    %if projects:
-      <ul class="plain-list">
-        %for pr in projects:
-          <li>
-            <a href="{{url_for('project_detail', project_id=pr.id)}}">{{pr.name}}</a>
-            <span class="badge badge-{{pr.status}}"><i class="dot"></i>{{status_label(pr.status)}}</span>
-          </li>
-        %end
-      </ul>
-    %else:
-      <p class="muted">Nothing being delivered for them right now.</p>
-    %end
-
-    <h2>Commitments</h2>
-    %if commitments:
-      <ul class="plain-list">
-        %for c in commitments:
-          %shown = insights.commitment_display_status(c)
-          <li>
-            <a href="{{url_for('commitments_list')}}">{{c.description}}</a>
-            <span class="badge badge-{{shown}}"><i class="dot"></i>{{status_label(shown)}}</span>
-            <span class="muted">{{c.person.name if c.person_id else 'Nobody'}}</span>
-          </li>
-        %end
-      </ul>
-    %else:
-      <p class="muted">Nobody has promised them anything.</p>
-    %end
 
     <h2>Tasks</h2>
     %if tasks:
@@ -88,29 +40,7 @@
         %end
       </ul>
     %else:
-      <p class="muted">No tasks linked to this customer yet.</p>
-    %end
-
-    <h2>Decisions</h2>
-    %if decisions:
-      <ul class="plain-list">
-        %for dcn in decisions:
-          <li><a href="{{url_for('decisions_list')}}">{{dcn.title}}</a> <span class="muted">{{dcn.decided_on.strftime('%b %-d, %Y') if dcn.decided_on else ''}}</span></li>
-        %end
-      </ul>
-    %else:
-      <p class="muted">No decisions recorded about them.</p>
-    %end
-
-    <h2>Notes</h2>
-    %if notes:
-      <ul class="plain-list">
-        %for n in notes:
-          <li><a href="{{url_for('note_detail', note_id=n.id)}}">{{n.title}}</a> <span class="muted">{{n.occurred_on.strftime('%b %-d') if n.occurred_on else ''}}</span></li>
-        %end
-      </ul>
-    %else:
-      <p class="muted">No notes linked to them yet.</p>
+      <p class="muted">No tasks linked to this client yet.</p>
     %end
 
     <h2>Attachments</h2>

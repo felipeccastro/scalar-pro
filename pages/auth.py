@@ -1,4 +1,4 @@
-"""Auth: register the first owner, login/logout, invites, password reset."""
+"""Auth: owner registration, login/logout, teammate invites, password reset."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ import secrets
 from bottle import request
 
 from app import app, render
-from models import Invite, PasswordReset, TeamMember, User
-from seed import seed_demo_data
+from models import Invite, PasswordReset, TeamMember, User, seed_demo_data
 from utils import (
     Mailer,
     MailerError,
@@ -50,7 +49,7 @@ def register_owner_submit():
     TeamMember.create(user=user, role="owner")
     seed_demo_data(user)
     login_user(user)
-    flash(f"Welcome, {name}. We've loaded a demo company so the dashboard has something to say.", "success")
+    flash(f"Welcome, {name}! We've added a couple of sample clients and tasks to get you started.", "success")
     redirect(url_for("settings_env") + "?onboarding=1")
 
 

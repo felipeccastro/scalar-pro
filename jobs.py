@@ -14,9 +14,9 @@ theoretically be picked up by two workers in the same poll window and
 emailed twice. Not a concern at the default WORKERS=1.
 
 The one job registered today is `_run_due_reminders`, which fires Reminders
-created via Ask AI/MCP's create_reminder tool (see ai.py) once their
-remind_at has passed: it creates an in-app Notification and emails the
-reminder's owner, then marks it sent so the next poll skips it.
+created via Ask AI's create_reminder tool (see ai.py) once their remind_at
+has passed: it creates an in-app Notification and emails the reminder's
+owner, then marks it sent so the next poll skips it.
 """
 
 from __future__ import annotations
@@ -102,10 +102,9 @@ def _run_due_reminders() -> None:
             notify(reminder.user, "reminder", message=reminder.message,
                    subject_type=reminder.subject_type, subject_id=reminder.subject_id)
             if reminder.subject_type and reminder.subject_id:
-                # Every record type a reminder can link to (SUBJECT_TYPES) is
-                # only ever soft-deleted or left as-is, never hard-deleted
-                # (see AGENTS.md), so the subject row is always still there
-                # to log against.
+                # Client/Task are only ever soft-deleted (archived_at), never
+                # hard-deleted, so the subject row is always still there to
+                # log against.
                 record_activity(reminder.subject_type, reminder.subject_id, reminder.user,
                                  "reminder_fired", message=reminder.message)
             try:

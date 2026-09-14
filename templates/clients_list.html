@@ -1,11 +1,11 @@
-%rebase('layout', title='Customers', back_url=url_for('dashboard'))
+%rebase('layout', title='Clients', back_url=url_for('dashboard'))
 <div class="page-header">
-  <h1>Customers</h1>
-  <button type="button" class="btn btn-primary" commandfor="new-client-dialog" command="show-modal">+ New customer</button>
+  <h1>Clients</h1>
+  <button type="button" class="btn btn-primary" commandfor="new-client-dialog" command="show-modal">+ New client</button>
 </div>
 
 <form method="get" action="{{url_for('clients_list')}}" class="search-form">
-  <input type="search" name="q" value="{{q}}" placeholder="Search customers…">
+  <input type="search" name="q" value="{{q}}" placeholder="Search clients…">
   <button class="btn" type="submit">Search</button>
   %if q:
     <a class="btn-link" href="{{url_for('clients_list')}}">Clear</a>
@@ -14,7 +14,7 @@
 
 <dialog id="new-client-dialog">
   <div class="dialog-head">
-    <span class="dialog-title">New customer</span>
+    <span class="dialog-title">New client</span>
     <button type="button" class="dialog-close" commandfor="new-client-dialog" command="close" aria-label="Close">✕</button>
   </div>
   <form method="post" action="{{url_for('clients_create')}}">
@@ -33,7 +33,7 @@
     </div>
     <div class="dialog-foot">
       <button type="button" class="btn" commandfor="new-client-dialog" command="close">Cancel</button>
-      <button class="btn btn-primary" type="submit">Add customer</button>
+      <button class="btn btn-primary" type="submit">Add client</button>
     </div>
   </form>
 </dialog>
@@ -50,7 +50,7 @@
       </tr>
     %end
     %if not clients:
-      <tr><td colspan="4" class="muted">No customers yet.</td></tr>
+      <tr><td colspan="4" class="muted">No clients yet.</td></tr>
     %end
   </tbody>
 </table>

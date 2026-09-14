@@ -10,7 +10,7 @@ import uuid
 from bottle import request
 
 from app import BASE_DIR, app
-from models import SUBJECT_TYPES, Attachment
+from models import Attachment
 from pages._shared import _redirect_to_subject
 from utils import current_user, flash, record_activity, redirect, slugify, url_for
 
@@ -23,7 +23,7 @@ def attachment_upload():
     subject_type = request.forms.get("subject_type") or ""
     subject_id = int(request.forms.get("subject_id") or 0)
     upload = request.files.get("file")
-    if subject_type not in SUBJECT_TYPES or not subject_id or upload is None or not upload.filename:
+    if subject_type not in ("client", "task") or not subject_id or upload is None or not upload.filename:
         flash("Choose a file to upload.", "error")
         _redirect_to_subject(subject_type or "client", subject_id or 0)
     safe_name = f"{uuid.uuid4().hex}_{slugify(os.path.splitext(upload.filename)[0])}{os.path.splitext(upload.filename)[1]}"

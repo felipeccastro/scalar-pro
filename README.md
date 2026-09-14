@@ -1,42 +1,26 @@
-# Scalar Pro
+# Scalar Core
 
-A small startup operating system: the customers you're selling to, the work
-you owe them, the promises people made, and the decisions you took — with a
-box on the dashboard that turns a pasted meeting note into all four.
+A small single-tenant CRM template — Clients, Tasks, comments, attachments,
+notifications, and a read/write **Ask AI** chat assistant — meant as a
+starting point to fork and build on, not as a product of its own.
 
-Built on [Scalar Core](../core): same Bottle + peewee + SQLite architecture,
-same zero-dependency constraint, same conventions. Core is Clients and Tasks;
-Pro adds People, Projects, Opportunities, Commitments, Decisions and Notes,
-and two screens that read the whole company back to you.
+Server-rendered [Bottle](https://bottlepy.org) + [peewee](http://docs.peewee-orm.com)
+over SQLite. No build step, no Node, and no `pip install` needed for the app
+itself — `bottle` and `peewee` are vendored as plain `.py` files under
+`vendor/` (MIT-licensed; see `vendor/LICENSE.*`). Styling comes from the
+[oat.css](https://oat.style) design-system library (also vendored),
+retthemed in `static/style.css`.
 
 - **What's built:** [DOCUMENTATION.md](DOCUMENTATION.md)
-- **Working on this app?** Read [AGENTS.md](AGENTS.md) first.
-- **What it's meant to be:** [SPEC.md](SPEC.md)
-
-## The three things it does
-
-**Dashboard (`/`)** — the CEO's thirty seconds. What needs attention, five
-headline numbers, what changed this week, what was decided. Every line is
-computed from the data, not generated.
-
-**Control (`/control`)** — the COO's version of the same question. Everything
-overdue, at risk, gone quiet, or owned by nobody, sorted by how long it's been
-that way. Plus a table of who promised what this week.
-
-**Capture** — the box at the top of the dashboard. Paste a meeting note, an
-email, or a brain dump; Scalar proposes the records worth keeping, you tick
-the ones you want, and they appear across the customer, the pipeline and the
-commitments — each linked back to the text it came from.
+- **Working on this app?** Read [AGENTS.md](AGENTS.md) first — in particular,
+  DOCUMENTATION.md needs updating alongside most changes.
 
 ## Requirements
 
 - Python 3.10+ (the code uses `X | None` type syntax).
-- Nothing else to run the app. `bottle` and `peewee` are vendored as plain
-  `.py` files under `vendor/`; the only pip line is gunicorn, and that's
-  dev-only.
-- **Capture and Ask AI** need a model: set `OPENAI_API_KEY`, or run Ollama
-  locally. Without one, every other page works normally and Capture says so
-  plainly instead of failing.
+- No external services required to run it. Optional integrations (AI chat,
+  outbound email) degrade gracefully when unconfigured — see
+  [Configuration](#configuration) below.
 
 ## Quick start
 
@@ -45,33 +29,54 @@ cp .env.example .env   # optional — sensible defaults work without it
 python3 app.py
 ```
 
-Then open http://localhost:8000 and register. The first account becomes the
-owner, and the instance seeds itself with a fictional company — eight people,
-fifteen customers, ten deals, six projects, forty tasks, fifteen commitments,
-ten decisions and twenty notes — so the dashboard has something to say from
-the first page load. Some of it is deliberately going wrong; that's the point.
+Then open http://localhost:8000 and register the first account (it becomes
+the team's owner, and gets a couple of sample clients/tasks seeded in).
 
-To reseed a scratch database:
+### Dev server with autoreload
+
+`python3 app.py` alone doesn't reload on code changes. For that, run it
+under gunicorn instead:
 
 ```bash
-SQLITE_PATH=/tmp/scratch.db python3 seed.py
+pip install gunicorn   # the one thing here that isn't vendored
+make                   # same as: make run
 ```
 
-## Layout
+`HOST`/`PORT`/`WORKERS` are overridable, e.g. `make PORT=8080`. Template and
+static file edits show up on the next request either way, without a
+restart (`app.py`'s `DEBUG` flag) — only `.py` changes need the
+gunicorn `--reload` (or a manual restart, if running `python3 app.py`
+directly).
+
+## Configuration
+
+Everything is optional — copy `.env.example` to `.env` and fill in only
+what you need. Full reference in
+[DOCUMENTATION.md § Configuration reference](DOCUMENTATION.md#configuration-reference).
+Highlights:
+
+- **Ask AI** works out of the box against a local [Ollama](https://ollama.com)
+  install (`OLLAMA_HOST`/`OLLAMA_MODEL`); set `OPENAI_API_KEY` to use an
+  OpenAI-compatible cloud API instead.
+- **Invite/password-reset emails** need `RESEND_API_KEY` — without it, the
+  app shows the invite/reset link directly in the UI instead of emailing it,
+  so the flow still works for local dev.
+- **`SECRET_KEY`** has a dev-only default; set a real value before deploying
+  anywhere real (it signs the session cookie).
+
+## Project layout
 
 ```
-app.py             wiring: config, hooks, error pages, template globals
-models.py          every table, and ensure_schema() (the whole migration story)
-insights.py        the derived state both dashboards read — overdue, at risk, stalled
-ai.py              explain (chat tools) + extract (JSON mode)
-seed.py            the demo company
-pages/
-  core.py          Core's routes: auth, customers, tasks, comments, chat
-  dashboard.py     / and /control, and the ledger partial they share
-  crm.py           opportunities, people
-  ops.py           projects, commitments
-  capture.py       the Capture routes, notes, decisions
-  capture_extract.py   the extraction pipeline behind Capture
+app.py        # Bottle app factory, hooks, template rendering, entrypoint
+pages/        # every route (no blueprints — one file per feature area)
+models.py     # peewee models + ensure_schema() (the whole "migrations" story)
+utils.py      # session/CSRF/password hashing/email/flash — hand-rolled, stdlib only
+ai.py         # Ask AI: tool-calling agent loop + Markdown renderer
+templates/    # Bottle SimpleTemplate (.html) views
+static/       # style.css (app-specific) + vendor/ (oat.css/js, bottle, peewee)
+uploads/      # attachment storage (gitignored; see UPLOAD_FOLDER)
 ```
 
-See [AGENTS.md](AGENTS.md) for what belongs where and why.
+See [DOCUMENTATION.md](DOCUMENTATION.md) for what each page/feature actually
+does, and [AGENTS.md](AGENTS.md) for conventions to follow when changing any
+of this.

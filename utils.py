@@ -134,8 +134,11 @@ def abort(code: int = 500, text: str = "Unknown Error.") -> None:
 
 
 # ---------------------------------------------------------------------------
-# CSRF (hmac-compared token, seeded into the session — same idea as admin's
-# app.py::_csrf_token/_csrf_protect, ported to Bottle's hook API)
+# CSRF token — generated and rendered into forms (see templates' hidden
+# `_csrf_token` field) but not verified anywhere in core. Request forgery
+# protection is a Pro capability (see pro/utils.py's csrf_protect(), enforced
+# by pro/app.py's before_request hook) — core keeps the token plumbing so its
+# templates/forms are unchanged, but nothing here checks it.
 # ---------------------------------------------------------------------------
 
 
@@ -150,27 +153,12 @@ def csrf_token() -> str:
 
 # Routes authenticated independently of the session (see
 # require_internal_secret) have no session-seeded CSRF token to present and
-# no session to be logged in on, so both csrf_protect() below and the
-# login-required hook (pages/__init__.py) skip them by path. Checked by path
-# rather than a route name (contrast PUBLIC_ROUTES in this module) because
-# Bottle's before_request hooks fire *before* routing — request.route isn't
-# resolved yet at this point, so there's no route to look a name up on.
+# no session to be logged in on, so the login-required hook (app.py) skips
+# them by path. Checked by path rather than a route name (contrast
+# PUBLIC_ROUTES in this module) because Bottle's before_request hooks fire
+# *before* routing — request.route isn't resolved yet at this point, so
+# there's no route to look a name up on.
 SESSION_INDEPENDENT_PATHS = frozenset({"/internal/ai-command"})
-
-
-def csrf_protect() -> None:
-    """Registered as a before_request hook. Every mutating request is
-    checked uniformly, except the paths in SESSION_INDEPENDENT_PATHS —
-    today just the admin app's internal Ask-AI proxy endpoint, which
-    authenticates itself via a shared secret instead of a session."""
-    if request.method in ("GET", "HEAD", "OPTIONS"):
-        return
-    if request.path in SESSION_INDEPENDENT_PATHS:
-        return
-    expected = csrf_token()
-    supplied = request.forms.get("_csrf_token") or request.headers.get("X-CSRF-Token") or ""
-    if not hmac.compare_digest(expected, supplied):
-        abort(400, "Your session expired or the form was out of date — please try again.")
 
 
 def require_internal_secret(view: Callable) -> Callable:
@@ -274,13 +262,13 @@ def role_at_least(role: str | None, minimum: str) -> bool:
     return _ROLE_RANK.get(role or "", 0) >= _ROLE_RANK.get(minimum, 99)
 
 
-# Route *names* (the `name=` passed to @app.route(...) in pages/*.py), not
+# Route *names* (the `name=` passed to @app.route(...) in pages/), not
 # paths — so the token-parameterized accept-invite/reset-password URLs
 # don't need special-casing the way a path-based list would. Every route
 # requires a logged-in user by default (see _require_login_hook in
-# pages/__init__.py, which resolves the route via app.match() and checks it
-# against this set); these are the handful of pages a signed-out visitor
-# genuinely needs to reach.
+# pages/__init__.py, which resolves the route via app.match() and checks
+# it against this set); these are the handful of pages a signed-out
+# visitor genuinely needs to reach.
 PUBLIC_ROUTES = frozenset({
     "register_owner", "register_owner_submit",
     "login", "login_submit",
@@ -318,7 +306,7 @@ def any_team_members_exist() -> bool:
 
 # ---------------------------------------------------------------------------
 # url_for — thin wrapper over Bottle's named-route lookup so templates and
-# pages/*.py have a stable, framework-shaped API.
+# pages/ have a stable, framework-shaped API.
 # ---------------------------------------------------------------------------
 
 
@@ -569,8 +557,6 @@ def notification_summary(n) -> str:
     dump. Falls back to the kind name for anything not covered here, so a
     future kind added without updating this function still renders
     something instead of nothing."""
-    import insights  # deferred: insights.py imports utils at module level
-
     try:
         payload = json.loads(n.payload_json or "{}")
     except json.JSONDecodeError:
@@ -580,13 +566,7 @@ def notification_summary(n) -> str:
     if n.kind == "comment":
         return f"New comment on “{payload.get('task_title', 'a task')}”."
     if n.kind == "reminder":
-        message = payload.get("message") or "Reminder."
-        subject_type, subject_id = payload.get("subject_type"), payload.get("subject_id")
-        if subject_type and subject_id:
-            label = insights.subject_label(subject_type).lower()
-            name = insights.subject_name(subject_type, subject_id)
-            return f'{message} (about {label} "{name}")'
-        return message
+        return payload.get("message") or "Reminder."
     return n.kind.replace("_", " ").capitalize() + "."
 
 
@@ -600,37 +580,3 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 def slugify(text: str) -> str:
     slug = _SLUG_RE.sub("-", (text or "").strip().lower()).strip("-")
     return slug or "item"
-
-
-# ---------------------------------------------------------------------------
-# Form parsing
-# ---------------------------------------------------------------------------
-
-
-def parse_date(value: str | None) -> "datetime.date | None":
-    """`<input type="date">` value to a date, or None.
-
-    Returns None for anything unparseable rather than raising: these come from
-    forms and from AI-extracted proposals, and an unreadable date should leave
-    the field empty, not 500 the request."""
-    import datetime
-
-    text = (value or "").strip()
-    if not text:
-        return None
-    try:
-        return datetime.date.fromisoformat(text[:10])
-    except ValueError:
-        return None
-
-
-def parse_int(value: str | None) -> int | None:
-    """Form field to an int, or None if blank/unparseable. Used for the
-    optional-FK selects, where "" means "no relation"."""
-    text = str(value or "").strip().replace(",", "")
-    if not text:
-        return None
-    try:
-        return int(float(text))
-    except ValueError:
-        return None

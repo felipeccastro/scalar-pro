@@ -22,41 +22,20 @@
         </select>
       </div>
       <div class="field">
-        <label>Priority</label>
-        <select name="priority">
-          %for pr in priorities:
-            <option value="{{pr}}" {{'selected' if task.priority == pr else ''}}>{{status_label(pr)}}</option>
-          %end
-        </select>
-      </div>
-      <div class="field">
-        <label>Owner</label>
-        <select name="owner_id">
-          <option value="">No owner</option>
-          %for p in people:
-            <option value="{{p.id}}" {{'selected' if task.owner_id == p.id else ''}}>{{p.name}}</option>
-          %end
-        </select>
-      </div>
-      <div class="field">
-        <label>Due date</label>
-        <input type="date" name="due_date" value="{{task.due_date.isoformat() if task.due_date else ''}}">
-      </div>
-      <div class="field">
-        <label>Customer</label>
+        <label>Client</label>
         <select name="client_id">
-          <option value="">No customer</option>
+          <option value="">No client</option>
           %for c in clients:
             <option value="{{c.id}}" {{'selected' if task.client_id == c.id else ''}}>{{c.name}}</option>
           %end
         </select>
       </div>
       <div class="field">
-        <label>Project</label>
-        <select name="project_id">
-          <option value="">No project</option>
-          %for pr in projects:
-            <option value="{{pr.id}}" {{'selected' if task.project_id == pr.id else ''}}>{{pr.name}}</option>
+        <label>Assignee</label>
+        <select name="assignee_id">
+          <option value="">Unassigned</option>
+          %for u in team_users:
+            <option value="{{u.id}}" {{'selected' if task.assignee_id == u.id else ''}}>{{u.name}}</option>
           %end
         </select>
       </div>
@@ -67,17 +46,6 @@
       <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
       <button class="btn btn-danger" type="submit" onclick="return confirm('Archive this task?')">Archive task</button>
     </form>
-
-    <h2>Where it came from</h2>
-    %if notes:
-      <ul class="plain-list">
-        %for n in notes:
-          <li><a href="{{url_for('note_detail', note_id=n.id)}}">{{n.title}}</a></li>
-        %end
-      </ul>
-    %else:
-      <p class="muted">Not linked to a note.</p>
-    %end
 
     <h2>Attachments</h2>
     <form method="post" action="{{url_for('attachment_upload')}}" enctype="multipart/form-data" class="inline-form">

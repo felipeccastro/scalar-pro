@@ -1,24 +1,10 @@
-"""Every route in the app, split by feature area. Still no blueprints — each
-module below does `from app import app` and decorates its own routes
-directly, exactly as one flat pages/core.py (Core's routes) and four more
-flat modules (Pro's own) used to; this package just gives each feature area
-its own file, the same move Core's own pages.py went through first (see
-AGENTS.md) — now applied uniformly instead of leaving Pro's biggest file out
-of it.
-
-Nine of these are Core's: auth, clients, tasks, comments, attachments,
-notifications, settings, chat, and the ⌘K quick-search palette. Four are
-Pro's own — dashboard, crm, ops, capture — plus `_shared.py`, which is not a
-route module: it's the handful of query/redirect helpers used by more than
-one of the files below (`_load_comments`, `_active_clients`, `_people`,
-`_open_projects`, …).
-
-What none of these files own is models — every table lives in models.py.
-Templates for all thirteen live together under the top-level templates/
-directory, namespaced by a subdirectory matching each Pro-specific file's
-name (templates/crm/opportunities_list.html, rendered as
-render("crm/opportunities_list.html")); the nine Core-derived files' own
-templates are the ones with no such prefix.
+"""Every route in the app, split by feature area. Still no blueprints —
+each module below does `from app import app` and decorates its own routes
+directly, exactly as a single flat pages.py used to; this package just
+gives each feature area its own file once the flat version grew past a
+size an editing pass could comfortably hold, while keeping the same "an
+AI-editing tool needs to hold it all in context" idea at the grain of one
+file per feature instead of one file per app.
 """
 
 from __future__ import annotations
@@ -78,23 +64,14 @@ def _require_login_hook() -> None:
 
 
 # Import each feature module for its route-registration side effects only.
-# Listed alphabetically — order doesn't matter for registration itself (every
-# module resolves other routes lazily, by name, via url_for at request time,
-# not at import time), and modules needing a shared helper (crm.py, ops.py,
-# capture.py) import it straight from _shared rather than from whichever
-# route module happened to load first.
 from . import (  # noqa: E402,F401
     attachments,
     auth,
-    capture,
     chat,
     clients,
     comments,
-    crm,
     dashboard,
     notifications,
-    ops,
-    palette,
     settings,
     tasks,
 )
