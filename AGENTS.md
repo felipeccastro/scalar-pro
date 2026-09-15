@@ -40,6 +40,29 @@ plainly supports.
 - This is also where a new tool's `search.index_entity(...)` call goes, the
   same as every other write path — see `search.py`.
 
+## Consider tests/ too
+
+**A new feature or a behavior change should make you ask whether `tests/`
+needs a new journey, or an existing one needs updating** — not every change
+needs one (see below), but skipping the question is how the folder goes
+stale and stops meaning anything.
+
+- `tests/` holds a *small* number of high-level, readable end-to-end
+  journeys (see `tests/README.md`) — not unit tests, and not one per route.
+  Add a new file only for a genuinely new user-facing story (a new kind of
+  record, a new page someone would actually use). A variation on a journey
+  that already exists — a new field on a form already covered, a tweak to
+  wording — extends that file's existing test method instead.
+- If a change alters what an *existing* journey's assertions expect (a
+  renamed status label, a moved button, a changed redirect target), update
+  that test in the same change. A red test after a deliberate change is
+  noise, not a safety net — and a green one that no longer checks anything
+  real is worse than no test at all.
+- Run `python3 tests/run_all.py` before considering a change done if you've
+  touched a route, template, or model any journey exercises.
+- Skip it for pure refactors, internal-only helpers, or anything already
+  covered incidentally by an existing journey's path through the app.
+
 ## Conventions specific to this codebase
 
 - **Zero pip dependencies beyond gunicorn** (dev-only, for autoreload).
@@ -105,3 +128,6 @@ plainly supports.
 - **Visual/behavioral changes**: run against a scratch database —
   `SQLITE_PATH=/tmp/scratch.db PORT=8123 python3 app.py` — rather than the
   real `app.db`, so local data doesn't need resetting afterward.
+- **End-to-end**: `python3 tests/run_all.py` — see [Consider tests/
+  too](#consider-tests-too) above for when a change should add to or update
+  what's in there rather than just running it as-is.
