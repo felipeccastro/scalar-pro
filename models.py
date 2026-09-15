@@ -34,12 +34,40 @@ db = DatabaseProxy()
 
 def make_database() -> SqliteDatabase:
     """Build the concrete database. Local SQLite file, path overridable via
-    SQLITE_PATH (defaults to app.db next to this file)."""
+    SQLITE_PATH (defaults to app.db next to this file).
+
+    Pragmas, and why each is here rather than left at SQLite's own default:
+    - journal_mode=wal: readers (most requests) don't block on a writer,
+      and vice versa — the default rollback journal takes an exclusive
+      lock for the whole write.
+    - synchronous=NORMAL: the pairing WAL mode's own docs recommend. Full
+      durability on every commit (the FULL default) costs an fsync per
+      write for a guarantee WAL already covers except across an actual OS
+      crash/power loss — an acceptable trade for a single-tenant app.
+    - foreign_keys=1: SQLite ignores FK constraints unless a connection
+      turns this on itself; without it, on_delete="CASCADE"/"SET NULL" in
+      models.py would be decoration, not enforced.
+    - busy_timeout=5000: retry for up to 5s on a locked database instead of
+      failing the request immediately. Single gunicorn worker or not (see
+      ../Makefile), jobs.py's reminder-polling thread and a request handler
+      both open their own connection to the same file, so brief contention
+      between them is real, not hypothetical.
+    - cache_size=-64000: a 64MB page cache (negative = KB, SQLite's own
+      convention), up from the ~2MB default — cheap on a server built for
+      this, and this database is read far more than it's written.
+    """
     sqlite_path = os.environ.get(
         "SQLITE_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.db")
     )
     return SqliteDatabase(
-        sqlite_path, pragmas={"journal_mode": "wal", "foreign_keys": 1}
+        sqlite_path,
+        pragmas={
+            "journal_mode": "wal",
+            "synchronous": 1,  # NORMAL
+            "foreign_keys": 1,
+            "busy_timeout": 5000,
+            "cache_size": -64000,
+        },
     )
 
 
