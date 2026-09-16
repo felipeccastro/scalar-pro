@@ -64,6 +64,18 @@ class Journey(unittest.TestCase):
 
         sys.path.insert(0, PRO_DIR)
         sys.path.insert(0, os.path.join(PRO_DIR, "vendor"))
+
+        # Migrate *before* `import app` below, not after: importing app.py
+        # starts jobs.py's background thread as a side effect, unconditionally
+        # (see app.py) — it reaches for the database the moment it's running,
+        # and would race this database's own migration for the very tables
+        # a pending one hasn't created yet. A journey plays both parts of a
+        # real deploy: migrate this fresh database as its own explicit step,
+        # the same one `make db-migrate` is, then serve.
+        from models import run_migrations
+
+        run_migrations()
+
         import app as appmod  # the real app, imported fresh in this process
 
         cls._server = make_server("127.0.0.1", 0, appmod.app, handler_class=_QuietHandler)

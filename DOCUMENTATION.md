@@ -13,6 +13,7 @@ page. Keep it in sync with the code — see [AGENTS.md](AGENTS.md).
 - [Clients](#clients)
 - [Tasks](#tasks)
 - [Comments, attachments & activity](#comments-attachments--activity)
+- [Audit log](#audit-log)
 - [Notifications](#notifications)
 - [Ask AI (chat assistant)](#ask-ai-chat-assistant)
 - [Scheduled jobs & reminders](#scheduled-jobs--reminders)
@@ -120,6 +121,29 @@ model):
   / `archived` / …) shown oldest-first-hidden, newest-first-shown in the
   detail page's sidebar. Written by `record_activity()` — see
   [AGENTS.md](AGENTS.md) if you're adding a new mutation that should log one.
+
+## Audit log
+
+`/audit` — a paginated (50/page), global, newest-first feed of every
+create/update/delete on a model with `audit_trail = True` (`Client`,
+`Task`, and `User`). Unlike Activity above, nobody calls anything to write
+one of these — `BaseModel.save()`/`delete_instance()` in `models.py` write
+an `AuditLog` row automatically:
+
+- **Created**: every field's value, `old` uniformly `None`.
+- **Updated**: only the fields that actually changed, each as
+  `{"old": ..., "new": ...}` — a field reassigned to the same value it
+  already had doesn't show up as a change.
+- **Deleted**: every field's value, `new` uniformly `None` — what the row
+  looked like right before it was gone.
+
+Each entry links to its subject (`Client`/`Task` land on their detail page;
+`User` has none of its own, so it lands on `/settings`'s team roster
+instead) and names the actor, best-effort from the current session
+(`None`/"System" outside a request — seeding, a script).
+`audit_exclude` on a model (`User.audit_exclude = {"password_hash"}`) keeps
+named fields out of every entry entirely, never fetched or serialized —
+add a model to the audit trail with a secret field, add it there too.
 
 ## Notifications
 
@@ -305,21 +329,24 @@ notification still goes out either way.
 
 ## Data model reference
 
-All models in `models.py`; schema changes are applied idempotently at
-startup by `ensure_schema()` (see [AGENTS.md](AGENTS.md) — there's no
-migrations directory).
+All models in `models.py`; schema changes are applied by migrations
+(`migrations/`, peewee-migrate — vendored) via `run_migrations()` — see
+[AGENTS.md](AGENTS.md) for when that runs and how to add one. This is
+pro's one deliberate divergence from `core/`, which still applies schema
+idempotently at startup with no migrations directory at all.
 
 | Model | Purpose |
 |---|---|
-| `User` | Account: email, password hash, name. |
+| `User` | Account: email, password hash, name. Audited (`audit_trail = True`, `password_hash` excluded — see [Audit log](#audit-log)). |
 | `TeamMember` | 1:1 with `User`. `role`: owner / admin / member. |
 | `Invite` | Pending join invite: email, token, role, accepted flag. |
 | `PasswordReset` | Single-use, time-limited reset token. |
-| `Client` | name, email, phone, company, status, notes, soft-delete via `archived_at`. |
-| `Task` | title, description, status, `assignee`/`client` (both optional FKs), `position` (board ordering), soft-delete via `archived_at`. |
+| `Client` | name, email, phone, company, `website` (added by `migrations/002_client_website.py` — a demo field for the migration pattern, not wired into any form yet), status, notes, soft-delete via `archived_at`. Audited. |
+| `Task` | title, description, status, `assignee`/`client` (both optional FKs), `position` (board ordering), soft-delete via `archived_at`. Audited. |
 | `Comment` | Generic over `subject_type`+`subject_id` (client/task). Plain text. |
 | `Attachment` | Generic over subject. Local-disk file, metadata in DB. |
 | `Activity` | Generic over subject. Append-only log: verb + JSON payload. |
+| `AuditLog` | Generic over subject. Written automatically, not by a route calling something — see [Audit log](#audit-log). |
 | `Notification` | Per-user. `kind` + JSON payload, `read_at`. |
 | `Reminder` | message, `remind_at`, optional client/task link, `sent_at` (null until `jobs.py` fires it). Created only via Ask AI. |
 | `ChatThread` | 1:1 with `User`. Holds `pending_*` fields for an in-flight write confirmation. |

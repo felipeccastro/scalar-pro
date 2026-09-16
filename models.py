@@ -1,10 +1,14 @@
-"""Peewee models for the template app.
+"""Peewee models for pro.
 
 Single-tenant: there is no Workspace concept at all — one instance == one
-customer. Schema changes ship as idempotent "does this column exist yet"
-checks run from ensure_schema() at startup (see the bottom of this file) —
-there is no migrations/ directory and no peewee-migrate dependency, per the
-zero-pip-dependency constraint (peewee + bottle only).
+customer.
+
+Schema changes go through migrations/ (peewee-migrate — vendored, see
+vendor/peewee_migrate/ and vendor/playhouse/, plus the note on Pro's own
+dependency story in AGENTS.md), applied by run_migrations() at startup (see
+the bottom of this file). This is pro's one deliberate divergence from
+core's zero-pip-dependency, no-migrations-framework rule — see
+AGENTS.md for why the tradeoff was worth it here and core stays as-is.
 """
 
 from __future__ import annotations
@@ -273,6 +277,7 @@ class Client(BaseModel):
     email = CharField(default="")
     phone = CharField(default="")
     company = CharField(default="")
+    website = CharField(default="")  # added by migrations/002_client_website.py — see that file
     status = CharField(default="lead")  # lead | active | inactive
     notes = TextField(default="")  # plain text — rendered with white-space: pre-wrap
     created_by = ForeignKeyField(User, backref="created_clients", null=True, on_delete="SET NULL")
@@ -470,33 +475,10 @@ class ChatMessage(BaseModel):
     created_at = DateTimeField(default=datetime.datetime.now)
 
 
-# ---------------------------------------------------------------------------
-# Schema — idempotent create + column checks, run at startup (no migrations/
-# directory, no peewee-migrate; see the Context note in the project plan).
-# ---------------------------------------------------------------------------
-
-ALL_MODELS = [
-    User,
-    TeamMember,
-    Invite,
-    PasswordReset,
-    Client,
-    Task,
-    Comment,
-    Attachment,
-    Activity,
-    AuditLog,
-    Notification,
-    Reminder,
-    ChatThread,
-    ChatMessage,
-]
-
-
 def seed_demo_data(owner: User) -> None:
     """A couple of realistic Clients/Tasks so a freshly-provisioned instance
     isn't an empty screen. Called once, right after the first owner registers
-    (see pages/auth.py:register_owner_submit) — not from ensure_schema(),
+    (see pages/auth.py:register_owner_submit) — not from run_migrations(),
     since it needs a real User to attribute the rows to."""
     acme = Client.create(
         name="Acme Corp", email="hello@acme.example", company="Acme Corp",
@@ -522,25 +504,31 @@ def seed_demo_data(owner: User) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Schema — owned by migrations/ (peewee-migrate), applied at startup.
+# ---------------------------------------------------------------------------
+
+
 def _column_exists(table: str, column: str) -> bool:
+    """Used from within a migration's own migrate() (see
+    migrations/002_client_website.py) to tell a genuine apply apart from
+    peewee-migrate's "fake" replay of already-applied migrations — under
+    fake, Database.execute_sql is mocked out, so a real probe here would
+    hit the mock rather than the actual table."""
     cur = db.execute_sql(f"PRAGMA table_info({table})")
     return any(row[1] == column for row in cur.fetchall())
 
 
-def _add_column_if_missing(table: str, column: str, ddl: str) -> None:
-    """`ddl` is the full column definition, e.g. "VARCHAR(255) DEFAULT ''".
-    Called from ensure_schema() for every future non-destructive column add —
-    same pattern an AI edit would append here (one model field + one line)."""
-    if not _column_exists(table, column):
-        db.execute_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migrations")
 
 
-def ensure_schema() -> None:
-    """Create any missing tables/columns/indexes. Safe to call on every
-    startup. This is the entire "migrations" story for this app."""
+def run_migrations() -> None:
+    """Apply every pending migration in migrations/, in filename order. Safe
+    to call on every startup — peewee-migrate tracks what's already applied
+    in its own `migratehistory` table, so an already-current database is a
+    no-op."""
     init_database()
-    db.create_tables(ALL_MODELS, safe=True)
-    # Columns added after the initial schema, one line per field added above:
-    _add_column_if_missing("chatthread", "pending_tool_calls", "TEXT")
-    _add_column_if_missing("chatthread", "pending_convo", "TEXT")
-    _add_column_if_missing("chatthread", "pending_round_idx", "INTEGER")
+    from peewee_migrate import Router
+
+    router = Router(db.obj, migrate_dir=MIGRATIONS_DIR)
+    router.run()

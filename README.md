@@ -39,14 +39,18 @@ under gunicorn instead:
 
 ```bash
 pip install gunicorn   # the one thing here that isn't vendored
-make                   # same as: make run
+make db-migrate        # apply migrations/ first — gunicorn workers assume the
+                        # schema's already current, they don't check
+make                    # same as: make run
 ```
 
 `HOST`/`PORT`/`WORKERS` are overridable, e.g. `make PORT=8080`. Template and
 static file edits show up on the next request either way, without a
 restart (`app.py`'s `DEBUG` flag) — only `.py` changes need the
 gunicorn `--reload` (or a manual restart, if running `python3 app.py`
-directly).
+directly). `python3 app.py` itself always applies any pending migration on
+every run, so `make db-migrate` is only something you think about under
+gunicorn.
 
 ## Configuration
 
@@ -69,13 +73,20 @@ Highlights:
 ```
 app.py        # Bottle app factory, hooks, template rendering, entrypoint
 pages/        # every route (no blueprints — one file per feature area)
-models.py     # peewee models + ensure_schema() (the whole "migrations" story)
+models.py     # peewee models + run_migrations() (applies migrations/)
+migrations/   # schema history (peewee-migrate) — see AGENTS.md to add one
+migrate.py    # `make db-migrate` entry point
 utils.py      # session/CSRF/password hashing/email/flash — hand-rolled, stdlib only
 ai.py         # Ask AI: tool-calling agent loop + Markdown renderer
 templates/    # Bottle SimpleTemplate (.html) views
 static/       # style.css (app-specific) + vendor/ (oat.css/js, bottle, peewee)
 uploads/      # attachment storage (gitignored; see UPLOAD_FOLDER)
 ```
+
+Schema changes go through `migrations/`, not an idempotent startup check —
+pro's one deliberate divergence from core's zero-migrations-framework rule.
+`peewee-migrate` (and the slice of `playhouse` it needs) is vendored in
+`vendor/`, same as `bottle`/`peewee` — still no `pip install` required.
 
 See [DOCUMENTATION.md](DOCUMENTATION.md) for what each page/feature actually
 does, and [AGENTS.md](AGENTS.md) for conventions to follow when changing any

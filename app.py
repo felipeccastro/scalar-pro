@@ -27,12 +27,14 @@ sys.modules.setdefault("app", sys.modules[__name__])
 # peewee and bottle are vendored in vendor/ as plain .py files, not
 # pip-installed — this app runs with `python3 app.py` and nothing else, no
 # venv/pip step required. Both are MIT-licensed; see vendor/LICENSE.peewee
-# and vendor/LICENSE.bottle.
+# and vendor/LICENSE.bottle. peewee-migrate and the slice of playhouse it
+# needs (for migrations/ — see models.py: run_migrations()) are vendored
+# the same way; see vendor/LICENSE.peewee-migrate.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
 
 from bottle import Bottle, HTTPError, debug as _bottle_debug, request, response, run, static_file, template
 
-from models import db, ensure_schema, status_label
+from models import db, init_database, run_migrations, status_label
 from utils import (
     csrf_token,
     current_user,
@@ -64,15 +66,32 @@ def _load_dotenv() -> None:
 
 
 _load_dotenv()
-# Schema is applied here — not just under `if __name__ == '__main__'` — so it
-# runs no matter which entrypoint starts the process (dev server or
-# gunicorn's `app:app`). Idempotent: safe to call on every process start.
-ensure_schema()
+# Binds the db proxy to a concrete connection — cheap, and distinct from
+# actually *applying* migrations (run_migrations(), right below). Needed
+# here, unconditionally, before jobs.start() further down: its background
+# thread reaches for `db` the moment it's running, gunicorn worker or dev
+# server alike, and a bound connection is exactly what that needs even on
+# a schema-less brand new database — the alternative is jobs.py crashing on
+# an uninitialized proxy on every process boot that isn't `python3 app.py`.
+init_database()
 
-# Same reasoning as ensure_schema() above: started here, not just under
-# `if __name__ == '__main__'`, so the reminder-firing job (see jobs.py) also
-# runs under `gunicorn app:app`. jobs.start() is idempotent and the thread is
-# a daemon, so this is safe however many times/entrypoints import this module.
+if __name__ == "__main__":
+    # Only the direct-run dev path auto-migrates, and it does so this
+    # early — before jobs.start() below, not down by run() at the bottom of
+    # this file — so that background thread never polls a table a pending
+    # migration hasn't created yet. `gunicorn app:app` (see Makefile)
+    # imports this module without __name__ ever equaling "__main__", so a
+    # production/self-hosted deploy applies migrations as its own explicit
+    # step first — `make db-migrate` — same split as admin/. Auto-migrating
+    # on every gunicorn worker's own import would mean concurrent workers
+    # racing to apply the same pending migration; a single, singular step
+    # ahead of starting any of them avoids that outright.
+    run_migrations()
+
+# Started here, not just under `if __name__ == '__main__'`, so the
+# reminder-firing job (see jobs.py) also runs under `gunicorn app:app`.
+# jobs.start() is idempotent and the thread is a daemon, so this is safe
+# however many times/entrypoints import this module.
 import jobs  # noqa: E402
 
 jobs.start()
@@ -295,6 +314,11 @@ import pages  # noqa: E402,F401
 
 
 if __name__ == "__main__":
+    # Migrations are already applied by now — see the earlier
+    # `if __name__ == "__main__": run_migrations()` right after
+    # init_database(), well before jobs.start(). This is the same
+    # `__main__` condition evaluated a second time, not a second migration
+    # step; the block's just placed where run() naturally belongs.
     run(
         app,
         host=os.environ.get("HOST", "0.0.0.0"),

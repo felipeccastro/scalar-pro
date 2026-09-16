@@ -66,9 +66,15 @@ stale and stops meaning anything.
 ## Conventions specific to this codebase
 
 - **Zero pip dependencies beyond gunicorn** (dev-only, for autoreload).
-  `bottle`/`peewee` are vendored as plain `.py` files in `vendor/`. Don't add
-  a pip dependency without a good reason; if you must, note it in
-  `requirements.txt` the way the gunicorn line already does.
+  `bottle`/`peewee` are vendored as plain `.py` files in `vendor/`, and so is
+  `peewee-migrate` (plus the slice of `playhouse` it needs) — see the schema
+  bullet below and `vendor/LICENSE.peewee-migrate`. Don't add a pip
+  dependency without a good reason; if you must, note it in
+  `requirements.txt` the way the gunicorn line already does. If it's a
+  genuinely small, MIT/BSD-equivalent library, vendoring it (a real copy in
+  `vendor/`, its license alongside) is preferred over a pip dependency —
+  that's the whole reason this app has no `requirements.txt` entries beyond
+  gunicorn today.
 - **No app-authored JS beyond what's declaratively necessary.** Mobile nav
   uses the checkbox hack; New Client/Task modals open via
   `commandfor`/`command="show-modal"`, wired by the already-vendored
@@ -80,11 +86,22 @@ stale and stops meaning anything.
   do any of them; each is small, single-purpose, and commented inline in
   `layout.html`/`settings.html`. Follow that same shape for anything else
   that genuinely needs script — don't reach for a framework or bundler.
-- **Schema changes go through `ensure_schema()`** in `models.py`: add a new
-  model to `ALL_MODELS`, or a new column via `_add_column_if_missing()`.
-  There's no `migrations/` directory and no `peewee-migrate` — this
-  idempotent-check-at-startup approach *is* the migration story. Keep it
-  that way.
+- **Schema changes go through `migrations/`** (peewee-migrate — vendored,
+  see the dependency bullet above), applied by `run_migrations()` in
+  `models.py`. This is pro's one deliberate divergence from core's
+  idempotent-check-at-startup approach (`core/models.py`'s `ensure_schema()`)
+  — core stays as-is; don't backport migrations there. To add a schema
+  change: edit the model in `models.py`, then add
+  `migrations/NNN_description.py` (next number, `migrate()` +
+  `rollback()`) — see `migrations/002_client_website.py` for the pattern of
+  adding a column, `migrations/001_initial.py` for creating a table.
+  Run `make db-migrate` (or just restart `python3 app.py`, which auto-
+  migrates on every dev run — see app.py) to apply it.
+  **Migrations are NOT applied automatically under `gunicorn app:app`** —
+  a production/self-hosted deploy runs `make db-migrate` as its own
+  explicit step before starting the server (same split as `../admin/`);
+  auto-migrating on every gunicorn worker's own import would mean
+  concurrent workers racing to apply the same pending migration.
 - **Bottle template gotcha:** any source line whose first non-whitespace
   character is `%` is parsed as Python — including inside an HTML comment.
   Don't write something like a `%rebase(...)` call as documentation text on
@@ -131,3 +148,10 @@ stale and stops meaning anything.
 - **End-to-end**: `python3 tests/run_all.py` — see [Consider tests/
   too](#consider-tests-too) above for when a change should add to or update
   what's in there rather than just running it as-is.
+- **A new migration**: apply it (`SQLITE_PATH=/tmp/scratch.db make
+  db-migrate`) against a scratch database seeded from before it existed
+  (copy a pre-migration `app.db`, or just an empty file for a brand new
+  one), then check the column/table landed as expected. Worth rolling back
+  too if the migration is anything more than a straightforward additive
+  column/table — `rollback()` gets a lot less exercise than `migrate()` in
+  practice and is where a mistake tends to hide.
