@@ -124,6 +124,23 @@ stale and stops meaning anything.
   off `subject_type` + `subject_id` rather than a table per model. A new
   commentable/attachable thing reuses these as-is; don't add a parallel
   `TaskComment` table.
+- **`BaseModel`'s opt-in flags** (`models.py`) — `audit_trail = True` and
+  `soft_delete = True`, both off by default, both currently on for
+  `Client`/`Task` (`audit_trail` also on `User`, `password_hash`
+  excluded). A new model wanting either just sets the flag; `soft_delete`
+  also needs its own nullable `deleted_at` column (a migration, see
+  `migrations/003_soft_delete.py`). Don't hand-roll a parallel mechanism
+  on a specific model (a bespoke `is_deleted` boolean, a one-off change
+  log) — extend the shared one instead, the same reasoning as the
+  generic-over-subject bullet above. `soft_delete` and `archived_at`
+  (a plain column some models have, not a `BaseModel` mechanism) are
+  deliberately different things: archiving is a one-way, visible status a
+  person sets; soft delete is what happens whenever *anything* — this
+  UI's Delete button, an Ask AI tool, a future script — tries to delete
+  one of these records at all, and it's reversible (`restore()`).
+  Query sites decide for themselves whether to filter `deleted_at`/
+  `archived_at` out — neither mechanism touches what a `SELECT` returns
+  on its own.
 - **Every route requires a logged-in user by default** — enforced by a
   `before_request` hook (`_require_login_hook` in `pages/__init__.py`), not
   a per-route decorator. A new route needs *no* annotation to be protected.

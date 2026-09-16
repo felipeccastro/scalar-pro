@@ -1,16 +1,29 @@
 %rebase('layout', title='Clients', back_url=url_for('dashboard'))
 <div class="page-header">
-  <h1>Clients</h1>
-  <button type="button" class="btn btn-primary" commandfor="new-client-dialog" command="show-modal">+ New client</button>
+  <h1>Clients{{' — Deleted' if showing_deleted else ''}}</h1>
+  %if not showing_deleted:
+    <button type="button" class="btn btn-primary" commandfor="new-client-dialog" command="show-modal">+ New client</button>
+  %end
 </div>
 
 <form method="get" action="{{url_for('clients_list')}}" class="search-form">
+  %if showing_deleted:
+    <input type="hidden" name="deleted" value="1">
+  %end
   <input type="search" name="q" value="{{q}}" placeholder="Search clients…">
   <button class="btn" type="submit">Search</button>
   %if q:
-    <a class="btn-link" href="{{url_for('clients_list')}}">Clear</a>
+    <a class="btn-link" href="{{url_for('clients_list', _query={'deleted': '1'} if showing_deleted else {})}}">Clear</a>
   %end
 </form>
+
+<p class="muted">
+  %if showing_deleted:
+    <a href="{{url_for('clients_list')}}">&larr; Back to clients</a>
+  %else:
+    <a href="{{url_for('clients_list', _query={'deleted': '1'})}}">View deleted clients</a>
+  %end
+</p>
 
 <dialog id="new-client-dialog">
   <div class="dialog-head">
@@ -39,18 +52,40 @@
 </dialog>
 
 <table class="data-table">
-  <thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Status</th></tr></thead>
+  <thead>
+    <tr>
+      <th>Name</th><th>Company</th><th>Email</th><th>Status</th>
+      %if showing_deleted:
+        <th></th>
+      %end
+    </tr>
+  </thead>
   <tbody>
     %for c in clients:
-      <tr onclick="location.href='{{url_for('client_detail', client_id=c.id)}}'">
-        <td>{{c.name}}</td>
-        <td>{{c.company}}</td>
-        <td>{{c.email}}</td>
-        <td><span class="badge badge-{{c.status}}"><i class="dot"></i>{{status_label(c.status)}}</span></td>
-      </tr>
+      %if showing_deleted:
+        <tr>
+          <td><a href="{{url_for('client_detail', client_id=c.id)}}">{{c.name}}</a></td>
+          <td>{{c.company}}</td>
+          <td>{{c.email}}</td>
+          <td><span class="badge badge-{{c.status}}"><i class="dot"></i>{{status_label(c.status)}}</span></td>
+          <td>
+            <form method="post" action="{{url_for('client_restore', client_id=c.id)}}" class="inline-form">
+              <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
+              <button class="btn-link" type="submit">Restore</button>
+            </form>
+          </td>
+        </tr>
+      %else:
+        <tr onclick="location.href='{{url_for('client_detail', client_id=c.id)}}'">
+          <td>{{c.name}}</td>
+          <td>{{c.company}}</td>
+          <td>{{c.email}}</td>
+          <td><span class="badge badge-{{c.status}}"><i class="dot"></i>{{status_label(c.status)}}</span></td>
+        </tr>
+      %end
     %end
     %if not clients:
-      <tr><td colspan="4" class="muted">No clients yet.</td></tr>
+      <tr><td colspan="{{5 if showing_deleted else 4}}" class="muted">{{'No deleted clients.' if showing_deleted else 'No clients yet.'}}</td></tr>
     %end
   </tbody>
 </table>

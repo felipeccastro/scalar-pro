@@ -32,6 +32,18 @@
       <button class="btn btn-danger" type="submit" onclick="return confirm('Archive this client?')">Archive client</button>
     </form>
 
+    %if client.deleted_at:
+      <form method="post" action="{{url_for('client_restore', client_id=client.id)}}" class="inline-form">
+        <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
+        <button class="btn" type="submit">Restore client</button>
+      </form>
+    %else:
+      <form method="post" action="{{url_for('client_delete', client_id=client.id)}}" class="inline-form">
+        <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
+        <button class="btn btn-danger" type="submit" onclick="return confirm('Delete this client? You can restore it later from the deleted clients list.')">Delete client</button>
+      </form>
+    %end
+
     <h2>Tasks</h2>
     %if tasks:
       <ul class="plain-list">

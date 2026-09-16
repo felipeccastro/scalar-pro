@@ -1,5 +1,5 @@
-"""Task board/list/detail/create/update/archive, plus the drag-and-drop
-reorder endpoint the /tasks board posts to.
+"""Task board/list/detail/create/update/archive/delete, plus the
+drag-and-drop reorder endpoint the /tasks board posts to.
 """
 
 from __future__ import annotations
@@ -15,7 +15,11 @@ from utils import abort, current_user, flash, notify, record_activity, redirect,
 
 
 def _active_clients() -> list[Client]:
-    return list(Client.select().where(Client.archived_at.is_null(True)).order_by(Client.name))
+    return list(
+        Client.select()
+        .where(Client.archived_at.is_null(True) & Client.deleted_at.is_null(True))
+        .order_by(Client.name)
+    )
 
 
 def _team_users() -> list[User]:
@@ -25,7 +29,21 @@ def _team_users() -> list[User]:
 @app.route("/tasks", method="GET", name="tasks_list")
 def tasks_list():
     q = (request.query.get("q") or "").strip()
-    query = Task.select().where(Task.archived_at.is_null(True))
+    showing_deleted = request.query.get("deleted") == "1"
+    # Deleted tasks get a plain list, not the kanban board below — grouping
+    # by status is the wrong frame for "what did we soft-delete", and it's
+    # not clear a deleted task's status column would even mean anything.
+    if showing_deleted:
+        query = Task.select().where(Task.deleted_at.is_null(False))
+        if q:
+            query = query.where(Task.title.contains(q) | Task.description.contains(q))
+        return render(
+            "tasks_list.html",
+            deleted_tasks=list(query.order_by(Task.updated_at.desc())),
+            showing_deleted=True,
+            q=q,
+        )
+    query = Task.select().where(Task.archived_at.is_null(True) & Task.deleted_at.is_null(True))
     if q:
         query = query.where(Task.title.contains(q) | Task.description.contains(q))
     tasks = list(query.order_by(Task.position, Task.id))
@@ -37,6 +55,7 @@ def tasks_list():
         clients=_active_clients(),
         team_users=_team_users(),
         q=q,
+        showing_deleted=False,
     )
 
 
@@ -149,3 +168,24 @@ def task_archive(task_id: int):
         record_activity("task", task.id, current_user(), "archived")
         flash(f"Archived “{task.title}”.", "success")
     redirect(url_for("tasks_list"))
+
+
+@app.route("/tasks/<task_id:int>/delete", method="POST", name="task_delete")
+def task_delete(task_id: int):
+    """Task.soft_delete = True (see models.py) means this never actually
+    removes the row — delete_instance() sets deleted_at instead, so it's
+    reversible from the "View deleted tasks" list."""
+    task = Task.select().where(Task.id == task_id).first()
+    if task is not None:
+        task.delete_instance()
+        flash(f"Deleted “{task.title}”. You can restore it from the deleted tasks list.", "success")
+    redirect(url_for("tasks_list"))
+
+
+@app.route("/tasks/<task_id:int>/restore", method="POST", name="task_restore")
+def task_restore(task_id: int):
+    task = Task.select().where(Task.id == task_id).first()
+    if task is not None:
+        task.restore()
+        flash(f"Restored “{task.title}”.", "success")
+    redirect(url_for("tasks_list", _query={"deleted": "1"}))

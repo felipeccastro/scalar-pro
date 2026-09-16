@@ -47,6 +47,18 @@
       <button class="btn btn-danger" type="submit" onclick="return confirm('Archive this task?')">Archive task</button>
     </form>
 
+    %if task.deleted_at:
+      <form method="post" action="{{url_for('task_restore', task_id=task.id)}}" class="inline-form">
+        <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
+        <button class="btn" type="submit">Restore task</button>
+      </form>
+    %else:
+      <form method="post" action="{{url_for('task_delete', task_id=task.id)}}" class="inline-form">
+        <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">
+        <button class="btn btn-danger" type="submit" onclick="return confirm('Delete this task? You can restore it later from the deleted tasks list.')">Delete task</button>
+      </form>
+    %end
+
     <h2>Attachments</h2>
     <form method="post" action="{{url_for('attachment_upload')}}" enctype="multipart/form-data" class="inline-form">
       <input type="hidden" name="_csrf_token" value="{{csrf_token()}}">

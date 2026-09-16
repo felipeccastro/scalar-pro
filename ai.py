@@ -197,7 +197,31 @@ TOOLS_SCHEMA: list[dict] = [
         "type": "function",
         "function": {
             "name": "archive_client",
-            "description": "Archive (soft-delete) a client by id. No hard delete, no unarchive. Requires human confirmation.",
+            "description": "Archive a client by id — hides them from the active list, but distinct from deleting; there's no unarchive tool. Requires human confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"client_id": {"type": "integer"}},
+                "required": ["client_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_client",
+            "description": "Delete a client by id. This is a soft delete (the record is never actually removed, and restore_client undoes it) — reversible, unlike a real delete. Requires human confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"client_id": {"type": "integer"}},
+                "required": ["client_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "restore_client",
+            "description": "Undo delete_client. Requires human confirmation.",
             "parameters": {
                 "type": "object",
                 "properties": {"client_id": {"type": "integer"}},
@@ -253,7 +277,31 @@ TOOLS_SCHEMA: list[dict] = [
         "type": "function",
         "function": {
             "name": "archive_task",
-            "description": "Archive (soft-delete) a task by id. No hard delete, no unarchive. Requires human confirmation.",
+            "description": "Archive a task by id — hides them from the active board, but distinct from deleting; there's no unarchive tool. Requires human confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"task_id": {"type": "integer"}},
+                "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_task",
+            "description": "Delete a task by id. This is a soft delete (the record is never actually removed, and restore_task undoes it) — reversible, unlike a real delete. Requires human confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"task_id": {"type": "integer"}},
+                "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "restore_task",
+            "description": "Undo delete_task. Requires human confirmation.",
             "parameters": {
                 "type": "object",
                 "properties": {"task_id": {"type": "integer"}},
@@ -297,8 +345,8 @@ TOOLS_SCHEMA: list[dict] = [
 # before _execute_tool ever actually runs one. Read tools (above) keep
 # running the moment the model calls them, exactly as before.
 _MUTATING_TOOLS = frozenset({
-    "create_client", "update_client", "archive_client",
-    "create_task", "update_task", "archive_task",
+    "create_client", "update_client", "archive_client", "delete_client", "restore_client",
+    "create_task", "update_task", "archive_task", "delete_task", "restore_task",
     "create_reminder",
 })
 
@@ -322,7 +370,7 @@ def _task_row(t: Task) -> dict:
 
 def _tool_list_clients(*, status: str | None = None, limit: int = 20) -> dict:
     limit = max(1, min(int(limit or 20), 50))
-    q = Client.select().where(Client.archived_at.is_null(True))
+    q = Client.select().where(Client.archived_at.is_null(True) & Client.deleted_at.is_null(True))
     if status:
         q = q.where(Client.status == status)
     rows = list(q.order_by(Client.created_at.desc()).limit(limit))
@@ -334,13 +382,17 @@ def _tool_get_client(*, client_id: int) -> dict:
         c = Client.get_by_id(client_id)
     except Client.DoesNotExist:
         return {"error": f"No client #{client_id}."}
-    tasks = list(Task.select().where((Task.client == c) & (Task.archived_at.is_null(True))))
+    tasks = list(
+        Task.select().where(
+            (Task.client == c) & Task.archived_at.is_null(True) & Task.deleted_at.is_null(True)
+        )
+    )
     return {**_client_row(c), "notes": c.notes, "tasks": [_task_row(t) for t in tasks]}
 
 
 def _tool_list_tasks(*, status: str | None = None, client_id: int | None = None, limit: int = 20) -> dict:
     limit = max(1, min(int(limit or 20), 50))
-    q = Task.select().where(Task.archived_at.is_null(True))
+    q = Task.select().where(Task.archived_at.is_null(True) & Task.deleted_at.is_null(True))
     if status:
         q = q.where(Task.status == status)
     if client_id:
@@ -369,14 +421,20 @@ def _tool_search(*, query: str, limit: int = 10) -> dict:
         return {"query": query, "hits": hits}
     clients = (
         Client.select()
-        .where(Client.name.contains(query) | Client.email.contains(query) | Client.company.contains(query))
+        .where(
+            Client.deleted_at.is_null(True)
+            & (Client.name.contains(query) | Client.email.contains(query) | Client.company.contains(query))
+        )
         .limit(limit)
     )
     for c in clients:
         hits.append({"subject_type": "client", "subject_id": c.id, "title": c.name, "snippet": c.company})
     tasks = (
         Task.select()
-        .where(Task.title.contains(query) | Task.description.contains(query))
+        .where(
+            Task.deleted_at.is_null(True)
+            & (Task.title.contains(query) | Task.description.contains(query))
+        )
         .limit(limit)
     )
     for t in tasks:
@@ -447,6 +505,33 @@ def _tool_archive_client(*, actor, client_id: int) -> dict:
     client.archived_at = datetime.datetime.now()
     client.save()
     record_activity("client", client.id, actor, "archived")
+    return {"ok": True, "id": client.id, "name": client.name}
+
+
+def _tool_delete_client(*, actor, client_id: int) -> dict:
+    """Client.soft_delete = True (see models.py) means delete_instance()
+    never actually removes the row — it sets deleted_at, same as clicking
+    "Delete client" in the UI, and restore_client undoes it."""
+    try:
+        client = Client.get_by_id(client_id)
+    except Client.DoesNotExist:
+        return {"error": f"No client #{client_id}."}
+    if client.deleted_at is not None:
+        return {"error": f"Client #{client_id} is already deleted."}
+    client.delete_instance()
+    record_activity("client", client.id, actor, "deleted")
+    return {"ok": True, "id": client.id, "name": client.name}
+
+
+def _tool_restore_client(*, actor, client_id: int) -> dict:
+    try:
+        client = Client.get_by_id(client_id)
+    except Client.DoesNotExist:
+        return {"error": f"No client #{client_id}."}
+    if client.deleted_at is None:
+        return {"error": f"Client #{client_id} isn't deleted."}
+    client.restore()
+    record_activity("client", client.id, actor, "restored")
     return {"ok": True, "id": client.id, "name": client.name}
 
 
@@ -542,6 +627,33 @@ def _tool_archive_task(*, actor, task_id: int) -> dict:
     return {"ok": True, "id": task.id, "title": task.title}
 
 
+def _tool_delete_task(*, actor, task_id: int) -> dict:
+    """Task.soft_delete = True (see models.py) means delete_instance()
+    never actually removes the row — it sets deleted_at, same as clicking
+    "Delete task" in the UI, and restore_task undoes it."""
+    try:
+        task = Task.get_by_id(task_id)
+    except Task.DoesNotExist:
+        return {"error": f"No task #{task_id}."}
+    if task.deleted_at is not None:
+        return {"error": f"Task #{task_id} is already deleted."}
+    task.delete_instance()
+    record_activity("task", task.id, actor, "deleted")
+    return {"ok": True, "id": task.id, "title": task.title}
+
+
+def _tool_restore_task(*, actor, task_id: int) -> dict:
+    try:
+        task = Task.get_by_id(task_id)
+    except Task.DoesNotExist:
+        return {"error": f"No task #{task_id}."}
+    if task.deleted_at is None:
+        return {"error": f"Task #{task_id} isn't deleted."}
+    task.restore()
+    record_activity("task", task.id, actor, "restored")
+    return {"ok": True, "id": task.id, "title": task.title}
+
+
 def _tool_create_reminder(*, actor, message: str, remind_in_minutes: int,
                            client_id: int | None = None, task_id: int | None = None) -> dict:
     message = (message or "").strip()
@@ -587,9 +699,13 @@ _DISPATCH = {
     "create_client": _tool_create_client,
     "update_client": _tool_update_client,
     "archive_client": _tool_archive_client,
+    "delete_client": _tool_delete_client,
+    "restore_client": _tool_restore_client,
     "create_task": _tool_create_task,
     "update_task": _tool_update_task,
     "archive_task": _tool_archive_task,
+    "delete_task": _tool_delete_task,
+    "restore_task": _tool_restore_task,
     "create_reminder": _tool_create_reminder,
 }
 
@@ -652,6 +768,10 @@ def _describe_tool_call(name: str, args: dict) -> str:
         return f'Create a new client named "{args.get("name", "?")}".'
     if name == "archive_client":
         return f"Archive {_client_label(args.get('client_id'))}."
+    if name == "delete_client":
+        return f"Delete {_client_label(args.get('client_id'))}."
+    if name == "restore_client":
+        return f"Restore {_client_label(args.get('client_id'))}."
     if name == "update_client":
         label = _client_label(args.get("client_id"))
         parts = [f"{k} to {v!r}" for k, v in args.items() if k != "client_id"]
@@ -665,6 +785,10 @@ def _describe_tool_call(name: str, args: dict) -> str:
         return ", ".join(bits) + "."
     if name == "archive_task":
         return f"Archive {_task_label(args.get('task_id'))}."
+    if name == "delete_task":
+        return f"Delete {_task_label(args.get('task_id'))}."
+    if name == "restore_task":
+        return f"Restore {_task_label(args.get('task_id'))}."
     if name == "update_task":
         label = _task_label(args.get("task_id"))
         parts = []
@@ -702,8 +826,11 @@ You have read-only tools: list_clients, get_client, list_tasks, get_task, search
 proactively instead of guessing — e.g. "what's overdue for Acme?" -> search("Acme") or \
 list_clients(), then get_client(id) to see their tasks.
 
-You also have write tools: create_client, update_client, archive_client, create_task, \
-update_task, archive_task, create_reminder. Every write tool call is paused and shown to a human \
+You also have write tools: create_client, update_client, archive_client, delete_client, \
+restore_client, create_task, update_task, archive_task, delete_task, restore_task, \
+create_reminder. delete_client/delete_task are soft deletes — the record is never actually \
+removed, and restore_client/restore_task undo them; archive is a separate, one-way action with no \
+matching undo tool. Every write tool call is paused and shown to a human \
 for explicit confirmation before it takes effect — you never need to ask "are you sure?" or \
 "should I go ahead?" in your own words first; just call the tool, and the app's own UI handles \
 confirming or cancelling. Don't tell the user a change has happened until you see the tool's \

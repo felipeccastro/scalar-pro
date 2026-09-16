@@ -8,14 +8,16 @@ from models import Client, Task
 
 @app.route("/", method="GET", name="dashboard")
 def dashboard():
-    open_clients = Client.select().where(Client.archived_at.is_null(True)).count()
-    open_tasks = Task.select().where(Task.archived_at.is_null(True) & (Task.status != "done")).count()
-    done_tasks = Task.select().where(Task.archived_at.is_null(True) & (Task.status == "done")).count()
+    active_client = Client.archived_at.is_null(True) & Client.deleted_at.is_null(True)
+    active_task = Task.archived_at.is_null(True) & Task.deleted_at.is_null(True)
+    open_clients = Client.select().where(active_client).count()
+    open_tasks = Task.select().where(active_task & (Task.status != "done")).count()
+    done_tasks = Task.select().where(active_task & (Task.status == "done")).count()
     recent_clients = list(
-        Client.select().where(Client.archived_at.is_null(True)).order_by(Client.created_at.desc()).limit(5)
+        Client.select().where(active_client).order_by(Client.created_at.desc()).limit(5)
     )
     recent_tasks = list(
-        Task.select().where(Task.archived_at.is_null(True)).order_by(Task.created_at.desc()).limit(5)
+        Task.select().where(active_task).order_by(Task.created_at.desc()).limit(5)
     )
     return render(
         "dashboard.html",

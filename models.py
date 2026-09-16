@@ -91,10 +91,24 @@ class BaseModel(Model):
 
     `audit_exclude` names fields that never appear in a snapshot or diff
     even while audit_trail is on — a secret like User.password_hash should
-    never end up sitting in a log a page renders back, hashed or not."""
+    never end up sitting in a log a page renders back, hashed or not.
+
+    `soft_delete = True` (opt-in per subclass, off by default here) makes
+    delete_instance() set `deleted_at` instead of actually removing the row
+    — a model that opts in needs a nullable `deleted_at` DateTimeField of
+    its own (Client/Task have one; see migrations/003_soft_delete.py for
+    the pattern of adding one to a future model). Query sites decide for
+    themselves whether to filter it out (`Model.deleted_at.is_null(True)`,
+    the same way every existing query already filters `archived_at`) —
+    this only changes what delete_instance() does, not what any SELECT
+    returns. `restore()` is the other half: sets `deleted_at` back to
+    None. Both go through save(), so a soft delete or a restore is really
+    just an update as far as audit_trail is concerned — there's nothing
+    to actually log as "deleted" when nothing left the table."""
 
     audit_trail = False
     audit_exclude: frozenset[str] = frozenset()
+    soft_delete = False
 
     class Meta:
         database = db
@@ -114,6 +128,10 @@ class BaseModel(Model):
         return result
 
     def delete_instance(self, recursive=False, delete_nullable=False):
+        if self.soft_delete:
+            self.deleted_at = datetime.datetime.now()
+            return self.save()
+
         # Captured before the row is actually gone (cheap — everything's
         # already in memory); written after a successful delete, so a
         # failed one (an FK constraint, say) doesn't log a phantom.
@@ -122,6 +140,14 @@ class BaseModel(Model):
         if self.audit_trail:
             _write_audit_log(self, "deleted", changes)
         return result
+
+    def restore(self):
+        """Undo a soft delete. A no-op call on a model that never opted
+        into soft_delete would be a bug at the call site, not something to
+        quietly swallow — let the AttributeError from a missing
+        deleted_at field surface."""
+        self.deleted_at = None
+        return self.save()
 
 
 def _audit_actor_id() -> int | None:
@@ -272,6 +298,7 @@ class PasswordReset(BaseModel):
 
 class Client(BaseModel):
     audit_trail = True
+    soft_delete = True
     id = AutoField()
     name = CharField()
     email = CharField(default="")
@@ -284,6 +311,11 @@ class Client(BaseModel):
     created_at = DateTimeField(default=datetime.datetime.now)
     updated_at = DateTimeField(default=datetime.datetime.now)
     archived_at = DateTimeField(null=True)
+    # Distinct from archived_at: archiving is a deliberate "done with this"
+    # action a person takes and can see reflected everywhere; deleted_at
+    # exists so delete_instance() (soft_delete=True, see BaseModel) never
+    # actually removes a row — added by migrations/003_soft_delete.py.
+    deleted_at = DateTimeField(null=True)
 
     class Meta:
         database = db
@@ -292,6 +324,7 @@ class Client(BaseModel):
 
 class Task(BaseModel):
     audit_trail = True
+    soft_delete = True
     id = AutoField()
     title = CharField()
     description = TextField(default="")  # plain text — rendered with white-space: pre-wrap
@@ -303,6 +336,7 @@ class Task(BaseModel):
     created_at = DateTimeField(default=datetime.datetime.now)
     updated_at = DateTimeField(default=datetime.datetime.now)
     archived_at = DateTimeField(null=True)
+    deleted_at = DateTimeField(null=True)  # see Client.deleted_at above
 
     class Meta:
         database = db

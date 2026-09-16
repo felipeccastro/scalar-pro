@@ -12,6 +12,7 @@ page. Keep it in sync with the code — see [AGENTS.md](AGENTS.md).
 - [Dashboard](#dashboard)
 - [Clients](#clients)
 - [Tasks](#tasks)
+- [Soft delete](#soft-delete)
 - [Comments, attachments & activity](#comments-attachments--activity)
 - [Audit log](#audit-log)
 - [Notifications](#notifications)
@@ -71,34 +72,72 @@ status badge), linking into the respective detail pages.
 ## Clients
 
 `/clients` — a searchable table (name/email/company, via `?q=`) of
-non-archived clients. **New client** opens a modal dialog (title bar, ✕
-close, Cancel/Add buttons) with name (required), email, phone, company,
-status (lead/active/inactive), and freeform notes. Clicking a row opens
-`/clients/<id>`:
+active clients (not archived, not deleted — see below). **New client**
+opens a modal dialog (title bar, ✕ close, Cancel/Add buttons) with name
+(required), email, phone, company, status (lead/active/inactive), and
+freeform notes. Clicking a row opens `/clients/<id>`:
 
-- Edit form for every field above, **Archive** (soft delete —
-  `archived_at` is set, not a real row delete, so activity/comments/
-  attachments referencing it survive), a file-upload **Attachments**
-  section, and the shared **Comments**/**Activity** sidebar (see below).
+- Edit form for every field above, a file-upload **Attachments** section,
+  and the shared **Comments**/**Activity** sidebar (see below).
+- **Archive**: sets `archived_at`. A deliberate, one-way "done with this"
+  action — no unarchive button, but the record (and everything that
+  references it) is otherwise untouched.
+- **Delete**: a *soft* delete (see [Soft delete](#soft-delete) below) —
+  sets `deleted_at` rather than removing the row, and is reversible. The
+  button flips to **Restore** once a client is deleted.
 - Lists that client's own tasks isn't shown on this page directly — tasks
   reference their client from the Tasks side (`Task.client`).
+
+"View deleted clients" (bottom of `/clients`) lists exactly the
+soft-deleted ones — archived or not, since deletion is the more final
+state being looked at here — each with its own **Restore** button, no
+need to open the detail page.
 
 ## Tasks
 
 `/tasks` — a kanban board grouped by status (**To Do** / **In Progress** /
-**Done**), each column headed by a dot + count. **New task** opens the same
-kind of modal dialog: title (required), client (optional, from a select of
-non-archived clients), assignee (optional, from the team), status,
-description. Cards can be dragged between columns (plain HTML5
-drag-and-drop, no library) to change status without opening the task; on
-drop, the whole column's new order is POSTed to `/tasks/reorder`, which
-only ever touches `status`/`position`, so it can't clobber anything else
-about a task. Clicking a card opens `/tasks/<id>`:
+**Done**), each column headed by a dot + count, over active (not archived,
+not deleted) tasks. **New task** opens the same kind of modal dialog:
+title (required), client (optional, from a select of active clients),
+assignee (optional, from the team), status, description. Cards can be
+dragged between columns (plain HTML5 drag-and-drop, no library) to change
+status without opening the task; on drop, the whole column's new order is
+POSTed to `/tasks/reorder`, which only ever touches `status`/`position`,
+so it can't clobber anything else about a task. Clicking a card opens
+`/tasks/<id>`:
 
-- Edit form for every field above, **Archive**, **Attachments**, and the
-  shared **Comments**/**Activity** sidebar.
+- Edit form for every field above, **Attachments**, and the shared
+  **Comments**/**Activity** sidebar.
+- **Archive** / **Delete** (flips to **Restore**) — same two distinct
+  actions as Clients, above.
 - Reassigning a task to someone other than yourself sends them an
   **assignment** notification (see [Notifications](#notifications)).
+
+"View deleted tasks" (bottom of `/tasks`) is a plain list, not the kanban
+board — grouping by status is the wrong frame for "what did we
+soft-delete" — with the same per-row **Restore**.
+
+## Soft delete
+
+A generic mechanism on `BaseModel` (`models.py`), not specific to Clients
+or Tasks: a model opts in with `soft_delete = True` and its own nullable
+`deleted_at` column, and from then on `delete_instance()` never actually
+removes the row — it sets `deleted_at` and saves, same as any other
+update. `restore()` is the other half (`deleted_at` back to `None`).
+Currently on: `Client`, `Task`.
+
+Distinct from **Archive**: archiving is a deliberate, one-way, visible
+status a person sets; a soft delete is what happens whenever *anything* —
+this UI's Delete button, an Ask AI tool call, a future script — tries to
+delete one of these records at all. Because it goes through `save()`, a
+delete or a restore shows up in the [Audit log](#audit-log) as an
+ordinary field update (`deleted_at` changing), not a fabricated "deleted"
+entry for a row that's still actually there.
+
+Query sites decide for themselves whether to filter `deleted_at` out —
+same as every existing query already filters `archived_at` — this
+mechanism only changes what `delete_instance()` does, not what any
+`SELECT` returns.
 - Saving records an `updated` (or `status_changed`, if the status field
   changed) activity entry and shows a **"Task updated."** toast.
 
@@ -168,10 +207,13 @@ is 1:1 with `User`). Two interchangeable backends, picked automatically:
 
 It's a tool-calling agent (`ai.py`) over both **read** tools (`list_clients`,
 `get_client`, `list_tasks`, `get_task`, `search`) and **write** tools
-(`create_client`, `update_client`, `archive_client`, `create_task`,
-`update_task`, `archive_task`, `create_reminder` — see
+(`create_client`, `update_client`, `archive_client`, `delete_client`,
+`restore_client`, `create_task`, `update_task`, `archive_task`,
+`delete_task`, `restore_task`, `create_reminder` — see
 [Scheduled jobs & reminders](#scheduled-jobs--reminders)) — up to
-`MAX_TOOL_ROUNDTRIPS` (6) per message.
+`MAX_TOOL_ROUNDTRIPS` (6) per message. `delete_*`/`restore_*` are the soft
+delete from [Soft delete](#soft-delete), not a real removal; `archive_*`
+is separate and one-way, no matching restore tool.
 Read tools execute immediately; a write tool call **pauses the turn** and
 shows a confirmation banner ("The assistant wants to: …") with Confirm/
 Cancel buttons before anything is actually written — `ChatThread.pending_*`
@@ -341,8 +383,8 @@ idempotently at startup with no migrations directory at all.
 | `TeamMember` | 1:1 with `User`. `role`: owner / admin / member. |
 | `Invite` | Pending join invite: email, token, role, accepted flag. |
 | `PasswordReset` | Single-use, time-limited reset token. |
-| `Client` | name, email, phone, company, `website` (added by `migrations/002_client_website.py` — a demo field for the migration pattern, not wired into any form yet), status, notes, soft-delete via `archived_at`. Audited. |
-| `Task` | title, description, status, `assignee`/`client` (both optional FKs), `position` (board ordering), soft-delete via `archived_at`. Audited. |
+| `Client` | name, email, phone, company, `website` (added by `migrations/002_client_website.py` — a demo field for the migration pattern, not wired into any form yet), status, notes, archived via `archived_at`. Audited, and soft-deleted via `deleted_at` — see [Soft delete](#soft-delete). |
+| `Task` | title, description, status, `assignee`/`client` (both optional FKs), `position` (board ordering), archived via `archived_at`. Audited, and soft-deleted via `deleted_at` — see [Soft delete](#soft-delete). |
 | `Comment` | Generic over `subject_type`+`subject_id` (client/task). Plain text. |
 | `Attachment` | Generic over subject. Local-disk file, metadata in DB. |
 | `Activity` | Generic over subject. Append-only log: verb + JSON payload. |
