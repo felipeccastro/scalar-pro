@@ -13,8 +13,10 @@
 HOST ?= 0.0.0.0
 PORT ?= 8000
 WORKERS ?= 1
+BACKUP_DIR ?= backups
+TS := $(shell date +%Y%m%d-%H%M%S)
 
-.PHONY: run dist db-migrate
+.PHONY: run dist db-migrate backup
 run:
 	gunicorn app:app \
 		--bind $(HOST):$(PORT) \
@@ -49,5 +51,31 @@ dist:
 		-x 'pro/app.db-shm' -x 'pro/app.db-wal' \
 		-x 'pro/dist/*'
 	@echo "Built dist/pro.zip"
+
+# Full backup for disaster recovery / moving to a new host: the whole
+# directory zipped up — including .env and uploads/, unlike `dist` above
+# (a clean distributable that deliberately excludes both, see its own
+# comment) — with a consistent point-in-time snapshot of app.db standing
+# in for the live file. A plain `cp` of app.db isn't safe: it runs in WAL
+# mode (see models.py), so a write in flight can leave committed data
+# sitting in the app.db-wal sidecar rather than app.db itself, and a raw
+# copy can grab the file mid-write in a torn state. backup.py drives
+# sqlite3's own Online Backup API (stdlib, no extra install) instead,
+# which is built for exactly this: safe to run against a live database.
+#
+# Written to backups/pro-<timestamp>.zip so repeated runs don't clobber
+# each other; backups/ is gitignored, same as dist/.
+backup:
+	mkdir -p $(BACKUP_DIR)
+	tmp=$$(mktemp -d) && \
+	mkdir -p $$tmp/pro && \
+	python3 backup.py $$tmp/pro/app.db && \
+	cd .. && zip -rq pro/$(BACKUP_DIR)/pro-$(TS).zip pro \
+		-x 'pro/__pycache__/*' -x 'pro/*/__pycache__/*' -x '*.pyc' \
+		-x 'pro/app.db' -x 'pro/app.db-shm' -x 'pro/app.db-wal' \
+		-x 'pro/dist/*' -x 'pro/$(BACKUP_DIR)/*' && \
+	cd $$tmp && zip -q $(CURDIR)/$(BACKUP_DIR)/pro-$(TS).zip pro/app.db && \
+	rm -rf $$tmp
+	@echo "Wrote $(BACKUP_DIR)/pro-$(TS).zip"
 
 .DEFAULT_GOAL := run
