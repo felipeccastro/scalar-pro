@@ -15,15 +15,13 @@
   %if q:
     <a class="btn-link" href="{{url_for('clients_list', _query={'deleted': '1'} if showing_deleted else {})}}">Clear</a>
   %end
-</form>
-
-<p class="muted">
+  <span class="search-form-spacer"></span>
   %if showing_deleted:
-    <a href="{{url_for('clients_list')}}">&larr; Back to clients</a>
+    <a class="btn-link" href="{{url_for('clients_list')}}">&larr; Back to clients</a>
   %else:
-    <a href="{{url_for('clients_list', _query={'deleted': '1'})}}">View deleted clients</a>
+    <a class="btn-link" href="{{url_for('clients_list', _query={'deleted': '1'})}}">View deleted clients</a>
   %end
-</p>
+</form>
 
 <dialog id="new-client-dialog">
   <div class="dialog-head">

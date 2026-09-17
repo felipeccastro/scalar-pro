@@ -503,6 +503,7 @@ h3 { font-size: var(--text-6); font-weight: 600; }
   margin-bottom: var(--space-4);
 }
 .search-form input[type="search"] { max-width: 20rem; }
+.search-form-spacer { flex: 1; }
 
 .pre-wrap-input { font-family: inherit; }
 .pre-wrap { white-space: pre-wrap; }

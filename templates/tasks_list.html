@@ -15,15 +15,13 @@
   %if q:
     <a class="btn-link" href="{{url_for('tasks_list', _query={'deleted': '1'} if showing_deleted else {})}}">Clear</a>
   %end
-</form>
-
-<p class="muted">
+  <span class="search-form-spacer"></span>
   %if showing_deleted:
-    <a href="{{url_for('tasks_list')}}">&larr; Back to tasks</a>
+    <a class="btn-link" href="{{url_for('tasks_list')}}">&larr; Back to tasks</a>
   %else:
-    <a href="{{url_for('tasks_list', _query={'deleted': '1'})}}">View deleted tasks</a>
+    <a class="btn-link" href="{{url_for('tasks_list', _query={'deleted': '1'})}}">View deleted tasks</a>
   %end
-</p>
+</form>
 
 %if showing_deleted:
   <!-- A plain list, not the kanban board below — grouping deleted tasks by
