@@ -16,7 +16,7 @@ WORKERS ?= 1
 BACKUP_DIR ?= backups
 TS := $(shell date +%Y%m%d-%H%M%S)
 
-.PHONY: run dist db-migrate backup
+.PHONY: run dist db-migrate backup repl
 run:
 	gunicorn app:app \
 		--bind $(HOST):$(PORT) \
@@ -29,6 +29,12 @@ run:
 # gunicorn workers assume the schema is already current, they don't check.
 db-migrate:
 	python3 migrate.py
+
+# Interactive shell with every model already imported (see repl.py) — for
+# poking at data by hand: `User.select()`, `Task.get_by_id(1)`, etc.
+# Migrations are NOT applied here, same caveat as `make run` above.
+repl:
+	python3 repl.py
 
 # Package a ready-to-run copy of this app for the landing page's
 # "Buy Once" button (../admin/routes/downloads.py serves the result) — the

@@ -52,6 +52,13 @@ directly). `python3 app.py` itself always applies any pending migration on
 every run, so `make db-migrate` is only something you think about under
 gunicorn.
 
+### REPL
+
+`make repl` (or `python3 repl.py`) drops into an interactive shell with
+every model already imported — `User`, `Client`, `Task`, etc. — for poking
+at data by hand, e.g. `Client.select().count()`. Doesn't start the app
+itself (no routes, no reminder-polling thread), just binds the database.
+
 ## Configuration
 
 Everything is optional — copy `.env.example` to `.env` and fill in only
@@ -76,6 +83,7 @@ pages/        # every route (no blueprints — one file per feature area)
 models.py     # peewee models + run_migrations() (applies migrations/)
 migrations/   # schema history (peewee-migrate) — see AGENTS.md to add one
 migrate.py    # `make db-migrate` entry point
+repl.py       # `make repl` entry point — interactive shell, models preloaded
 utils.py      # session/CSRF/password hashing/email/flash — hand-rolled, stdlib only
 ai.py         # Ask AI: tool-calling agent loop + Markdown renderer
 templates/    # Bottle SimpleTemplate (.html) views
