@@ -49,6 +49,7 @@ dist:
 		-x 'pro/.env' \
 		-x 'pro/__pycache__/*' -x 'pro/*/__pycache__/*' -x '*.pyc' \
 		-x 'pro/app.db-shm' -x 'pro/app.db-wal' \
+		-x 'pro/logs/*' \
 		-x 'pro/dist/*'
 	@echo "Built dist/pro.zip"
 

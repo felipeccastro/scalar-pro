@@ -20,6 +20,7 @@ page. Keep it in sync with the code — see [AGENTS.md](AGENTS.md).
 - [Scheduled jobs & reminders](#scheduled-jobs--reminders)
 - [Settings & appearance](#settings--appearance)
 - [Error pages](#error-pages)
+- [Logging](#logging)
 - [Navigation & keyboard](#navigation--keyboard)
 - [Email](#email)
 - [Interface & behavior](#interface--behavior)
@@ -296,6 +297,27 @@ the same URL. Deliberately dependency-free (no icon library, no JS): the
 a second crash (see its comment in `app.py`), so the page most likely to
 render right after something broke shouldn't lean on anything else that
 could fail with it.
+
+## Logging
+
+`app.py`'s `_configure_logging()` sends every `logging.getLogger(...)` call
+in the app (an access-log line per request — see below — jobs.py's
+reminder-job failures, app.py's own 500 handler) to `logs/app.log`, plus the
+console so `python3 app.py`/`make run` still show it during dev. Rotating:
+once `app.log` hits ~1MB it's rolled to `.1` (bumping any existing `.1`/`.2`
+up a slot), keeping at most 3 old files alongside the active one — a
+long-lived self-hosted instance can't fill its disk from an ever-growing
+log. Level is `DEBUG` when the `DEBUG` env var is on, `INFO` otherwise (see
+[Configuration reference](#configuration-reference)); peewee's own
+per-query DEBUG logging is explicitly silenced to `WARNING` regardless, so
+turning `DEBUG` on doesn't drown the log in SQL statements. `logs/` is
+gitignored and excluded from `make dist`.
+
+An `after_request` hook (`_log_request`) writes one line per request —
+`GET /clients -> 200 (4.2ms)` — status and timing included, sourced from
+`response.status_code` in the normal case and hardcoded to 500 for a
+genuine unhandled exception, whose status bottle only applies to
+`response` *after* this hook already ran (see the hook's own comment).
 
 ## Navigation & keyboard
 

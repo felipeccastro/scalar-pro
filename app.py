@@ -9,8 +9,11 @@ hand-rolled or stdlib (see utils.py / ai.py).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
+import time
+from logging.handlers import RotatingFileHandler
 
 # Every module in pages/ does `from app import app` so every route can be
 # declared as `@app.route(...)` without a blueprint indirection. If this
@@ -66,6 +69,43 @@ def _load_dotenv() -> None:
 
 
 _load_dotenv()
+
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+
+
+def _configure_logging() -> None:
+    """Root logger -> logs/app.log, rotating so a long-lived self-hosted
+    instance can't grow that file forever: once it hits ~1MB it's renamed to
+    app.log.1 (bumping any existing .1/.2 up a slot), keeping at most 3 old
+    files alongside the active one. Configured on the root logger, not
+    per-module, so every `logging.getLogger(__name__)` call site — jobs.py's
+    today, app.py's own below, anything added later — lands here without its
+    own setup. A StreamHandler stays alongside it so `python3 app.py`/
+    `make run` still show log output in the terminal during dev."""
+    os.makedirs(LOG_DIR, exist_ok=True)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    file_handler = RotatingFileHandler(os.path.join(LOG_DIR, "app.log"), maxBytes=1_000_000, backupCount=3)
+    file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if os.environ.get("DEBUG", "1") == "1" else logging.INFO)
+    root.addHandler(file_handler)
+    root.addHandler(console_handler)
+
+    # peewee logs every SQL statement at DEBUG, which would otherwise drown
+    # out everything else once DEBUG=1 bumps the root logger down to that
+    # level — request logging (see _log_request below) is the signal
+    # actually wanted in app.log, not the query stream behind it.
+    logging.getLogger("peewee").setLevel(logging.WARNING)
+
+
+_configure_logging()
+logger = logging.getLogger(__name__)
+
 # Binds the db proxy to a concrete connection — cheap, and distinct from
 # actually *applying* migrations (run_migrations(), right below). Needed
 # here, unconditionally, before jobs.start() further down: its background
@@ -173,6 +213,14 @@ def render(name: str, **kwargs) -> str:
 
 
 @app.hook("before_request")
+def _start_request_timer() -> None:
+    # Stashed on environ (request-local by construction — bottle builds a
+    # fresh Request per WSGI call) rather than a module global, so concurrent
+    # requests under WORKERS>1/threads can't clobber each other's start time.
+    request.environ["scalar.start_time"] = time.monotonic()
+
+
+@app.hook("before_request")
 def _open_db() -> None:
     db.connect(reuse_if_open=True)
     # Every write a POST makes should land together: if a handler creates
@@ -214,6 +262,22 @@ def _close_db() -> None:
             db.session_commit()
     if not db.is_closed():
         db.close()
+
+
+@app.hook("after_request")
+def _log_request() -> None:
+    """Access log: one line per request, e.g. `GET /clients -> 200 (4.2ms)`.
+    Runs from the same finally as _close_db above (see its comment), so for
+    a genuine unhandled exception response.status_code is still whatever it
+    was before the request started — bottle only applies the 500 status
+    afterwards, in the outer handler that turns the exception into one (see
+    _server_error, which logs that case's full traceback separately). The
+    same sys.exc_info() check _close_db relies on tells us that's what's
+    coming, so use 500 instead of trusting response.status_code blindly."""
+    start = request.environ.get("scalar.start_time")
+    elapsed_ms = (time.monotonic() - start) * 1000 if start is not None else 0.0
+    status = 500 if sys.exc_info()[0] is not None else response.status_code
+    logger.info("%s %s -> %s (%.1fms)", request.method, request.path, status, elapsed_ms)
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +350,18 @@ def _forbidden(_error: HTTPError):
 
 @app.error(500)
 def _server_error(_error: HTTPError):
+    # By the time bottle's error_handler dispatch reaches this callback, the
+    # exception has already unwound out of the except block that caught it
+    # (see bottle.py: Bottle._handle) — sys.exc_info() is empty here, so
+    # logger.exception() would log nothing useful. Bottle stashes the
+    # original exception/traceback string on the HTTPError itself instead
+    # (`_error.exception`/`_error.traceback`); use those. Only unhandled
+    # exceptions carry them — an explicit `abort(500, "msg")` call site has
+    # neither, hence the fallback.
+    if _error.traceback:
+        logger.error("Unhandled exception on %s %s\n%s", request.method, request.path, _error.traceback)
+    else:
+        logger.error("500 on %s %s: %s", request.method, request.path, _error.body)
     # A 500 can mean the request died mid-transaction; roll back before any
     # further query runs (the error page itself queries current_user/nav
     # data), and guard the render so a broken template can't cascade into a
