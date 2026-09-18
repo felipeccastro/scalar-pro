@@ -1,4 +1,4 @@
-# Scalar Core
+# Scalar Pro
 
 A small single-tenant CRM template — Clients, Tasks, comments, attachments,
 notifications, and a read/write **Ask AI** chat assistant — meant as a

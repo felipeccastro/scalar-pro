@@ -1,4 +1,4 @@
-# Scalar Core — Feature Documentation
+# Scalar Pro — Feature Documentation
 
 This describes what's actually built, for a person (or an agent) picking up
 this project without prior context. Code comments cover *why* a given line
